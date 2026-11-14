@@ -192,3 +192,77 @@ def test_alert_test_route_and_its_limit(alert_env):
     clock.advance(seconds=61)
     assert http.post("/v1/alerts/test", headers=bearer(ADMIN)).status_code == 200
     assert http.post("/v1/alerts/test", headers=bearer(CHECK)).status_code == 403
+
+
+# ---------- painel, verificações e relatório diário ----------
+
+def test_panel_is_static_and_locked_down(env):
+    http = env[0]
+    r = http.get("/painel")
+    assert r.status_code == 200 and r.headers["content-type"].startswith("text/html")
+    csp = r.headers["content-security-policy"]
+    assert "script-src 'self'" in csp and "connect-src 'self'" in csp and "unsafe-inline" not in csp
+    assert r.headers["x-frame-options"] == "DENY"
+    assert "<script" in r.text and "src=\"/painel/static/painel.js\"" in r.text
+    # a página não traz dado nenhum: tudo vem das rotas /v1 com o token
+    assert "2186" not in r.text and ADMIN not in r.text
+    for asset in ("painel.js", "painel.css"):
+        a = http.get(f"/painel/static/{asset}")
+        assert a.status_code == 200, asset
+        assert a.headers["content-security-policy"] == csp
+    assert http.get("/painel/static/../../main.py").status_code == 404
+    assert http.get("/").json()["painel"] == "/painel"
+
+
+def test_checks_history_is_admin_only_and_newest_first(env):
+    http, _, analytics, clock, client_key = env
+    http.post("/v1/checks", headers=bearer(CHECK))
+    clock.advance(minutes=11)
+    analytics.error = AnalyticsError("unavailable", "MapTiler fora do ar", 503)
+    http.post("/v1/checks", headers=bearer(ADMIN))
+    assert http.get("/v1/checks", headers=bearer(client_key)).status_code == 403
+    assert http.get("/v1/checks", headers=bearer(CHECK)).status_code == 403
+    checks = http.get("/v1/checks?limit=5", headers=bearer(ADMIN)).json()["checks"]
+    assert [c["status"] for c in checks] == ["failed", "ok"]
+    assert [c["trigger"] for c in checks] == ["manual", "schedule"]
+    assert checks[0]["error"]["kind"] == "unavailable" and checks[1]["requests"]["used"] == 2186
+    assert len(http.get("/v1/checks?limit=1", headers=bearer(ADMIN)).json()["checks"]) == 1
+    assert http.get("/v1/checks?limit=0", headers=bearer(ADMIN)).status_code == 422
+
+
+def test_daily_report_once_per_day(alert_env):
+    http, channels, clock, client_key = alert_env
+    http.post("/v1/checks", headers=bearer(CHECK))  # 91%: um e-mail e um WhatsApp de aviso
+    assert http.post("/v1/reports/daily", headers=bearer(client_key)).status_code == 403
+    r = http.post("/v1/reports/daily", headers=bearer(CHECK))
+    assert r.status_code == 200 and r.json() == {"status": "sent", "date": "2026-11-14", "error": None}
+    report, _key = channels["email"].sent[-1]
+    assert "Relatório diário de 14/11/2026" in report.subject and "requests em 91" in report.subject
+    assert "1 verificações (1 bem-sucedidas, 0 com falha)" in report.text
+    assert "requests 90%, por e-mail" in report.text and "requests 90%, por WhatsApp" in report.text
+    assert len(channels["whatsapp"].sent) == 1  # o relatório vai só por e-mail
+    assert http.post("/v1/reports/daily", headers=bearer(ADMIN)).json()["status"] == "already_sent"
+    clock.advance(days=1)
+    assert http.post("/v1/reports/daily", headers=bearer(CHECK)).json() == {
+        "status": "sent", "date": "2026-11-15", "error": None}
+    kinds = [a["kind"] for a in http.get("/v1/alerts", headers=bearer(ADMIN)).json()["alerts"]]
+    assert kinds.count("report") == 2
+
+
+def test_daily_report_without_data_or_email():
+    from tests.helpers import fake_channels
+
+    storage, clock = MemoryStorage(), Clock(at("2026-11-14"))
+    channels = fake_channels()
+    app = create_app(make_settings(), storage, FakeAnalytics(), clock, configure_logging=False, channels=channels)
+    with TestClient(app) as http:
+        r = http.post("/v1/reports/daily", headers=bearer(CHECK)).json()
+        assert r["status"] == "sent"
+        report, _ = channels["email"].sent[-1]
+        assert "sem dados" in report.subject and "Ainda não houve" in report.text
+
+    no_email = fake_channels(email=False)
+    app = create_app(make_settings(), MemoryStorage(), FakeAnalytics(), clock, configure_logging=False,
+                     channels=no_email)
+    with TestClient(app) as http:
+        assert http.post("/v1/reports/daily", headers=bearer(CHECK)).json()["status"] == "not_configured"

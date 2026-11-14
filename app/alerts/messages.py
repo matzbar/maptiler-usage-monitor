@@ -78,6 +78,48 @@ def ping_message(doc: dict, timezone: str) -> Message:
     return Message("[MapTiler] Teste de aviso", text, f"*MapTiler Monitor*: teste de aviso ({when}).")
 
 
+LEVEL_PT = {"normal": "normal (abaixo de 50%)", "notice": "atenção (50%)", "warning": "aviso (70%)",
+            "high": "alto (80%)", "very_high": "muito alto (90%)", "critical": "crítico (100%)"}
+CHANNEL_PT = {"email": "e-mail", "whatsapp": "WhatsApp", "panel": "painel"}
+
+
+def report_message(doc: dict, timezone: str) -> Message:
+    """Relatório diário: consumo do período, situação dos dados e o que aconteceu nas últimas 24 horas."""
+    day, usage = br_date(doc["report_date"]), doc["usage"]
+    lines: list[str] = []
+    if usage["status"] == "unavailable":
+        subject = f"[MapTiler] Relatório diário de {day}: sem dados"
+        lines.append("Ainda não houve nenhuma verificação bem-sucedida do consumo.")
+    else:
+        req, ses, proj, period = usage["requests"], usage["sessions"], usage["projection"], usage["period"]
+        subject = f"[MapTiler] Relatório diário de {day}: requests em {br_pct(req['percent'])}"
+        if usage["status"] == "stale":
+            lines += ["Atenção: o consumo abaixo está desatualizado.", ""]
+        lines += [
+            f"Período de cobrança: {br_date(period['since'])} a {br_date(period['until'])} "
+            f"(dia {proj['based_on_days']} de {proj['days_in_period']}).",
+            f"Consumo obtido do MapTiler em {br_datetime(usage['checked_at'], timezone)}:",
+            "",
+            f"- Requests: {br_int(req['used'])} de {br_int(req['quota'])} ({br_pct(req['percent'])}). "
+            f"Projeção até o fim do período: {br_pct(proj['requests_percent'])}.",
+            f"- Sessions: {br_int(ses['used'])} de {br_int(ses['quota'])} ({br_pct(ses['percent'])}). "
+            f"Projeção até o fim do período: {br_pct(proj['sessions_percent'])}.",
+            f"- Faixa: {LEVEL_PT.get(usage['level'], usage['level'])}.",
+        ]
+    error = usage.get("last_error")
+    if error:
+        lines += ["", f"A verificação mais recente falhou ({br_datetime(error['checked_at'], timezone)}): "
+                      f"{error['message']} ({error['kind']})."]
+    checks, alerts = doc["checks_24h"], doc["alerts_24h"]
+    lines += ["", f"Últimas 24 horas: {checks['ok'] + checks['failed']} verificações ({checks['ok']} bem-sucedidas, "
+                  f"{checks['failed']} com falha) e {len(alerts)} avisos enviados."]
+    for alert in alerts:
+        what = "monitor sem dados" if alert["kind"] == "monitor_down" else f"{alert['metric']} {alert['threshold']}%"
+        lines.append(f"- {what}, por {CHANNEL_PT.get(alert['channel'], alert['channel'])}")
+    return Message(subject, "\n".join(lines), subject)
+
+
 def build_message(doc: dict, timezone: str) -> Message:
-    builders = {"usage": usage_message, "monitor_down": monitor_down_message, "test": ping_message}
+    builders = {"usage": usage_message, "monitor_down": monitor_down_message, "test": ping_message,
+                "report": report_message}
     return builders[doc["kind"]](doc, timezone)

@@ -7,9 +7,9 @@ cobrança, porcentagem da cota, faixa de consumo, projeção até o fim do perí
 Outros projetos consultam o consumo por esta API, cada um com a própria chave, sem nunca receber a credencial de
 serviço do MapTiler, que dá acesso total à conta e fica só aqui.
 
-> **Situação:** em desenvolvimento. Pronto: consulta ao MapTiler, cálculo, histórico, leitura pela API e alertas
-> por e-mail (Resend) e WhatsApp (CallMeBot). Próximas etapas: agendamento a cada 6 horas pelo GitHub Actions e
-> painel do administrador.
+> **Situação:** em desenvolvimento. Pronto: consulta ao MapTiler, cálculo, histórico, leitura pela API, alertas
+> por e-mail (Resend) e WhatsApp (CallMeBot), relatório diário por e-mail e painel do administrador. Próxima etapa:
+> agendamento pelo GitHub Actions (verificação a cada 6 horas e relatório às 9h).
 
 ## Como funciona
 
@@ -51,6 +51,22 @@ Depois de cada verificação, requests e sessions são avaliados **separadamente
 Para conferir os canais depois de configurar: `POST /v1/alerts/test` (administrador) manda uma mensagem de teste
 em cada um.
 
+**Relatório diário:** `POST /v1/reports/daily` manda por e-mail o consumo do período, a projeção, as verificações
+e os avisos das últimas 24 horas. Sai no máximo um por dia (no fuso `ALERT_TIMEZONE`); chamadas repetidas
+respondem `already_sent`.
+
+## Painel
+
+Em `/painel`, para o administrador: situação e faixa, medidores de requests e sessions com as faixas de aviso e a
+projeção, gráfico do consumo acumulado contra a cota, consumo por chave e por serviço, avisos com o resultado de
+cada envio, verificações recentes e consumo dia a dia. Os botões verificam agora e mandam um aviso de teste.
+
+- A página é estática e não traz dados: tudo vem das rotas `/v1` com o `ADMIN_TOKEN`, que a pessoa cola na
+  tela de entrada. O token fica só naquela aba (`sessionStorage`) e some quando ela é fechada.
+- A política de segurança da página só permite script, estilo e conexões do próprio monitor, sem nada inline
+  nem de outros sites. Os textos que vêm da API entram como texto, nunca como HTML.
+- Cada atualização do painel faz 4 requisições, que contam no limite por IP (`RATE_LIMIT_PER_MIN`).
+
 ## Rodar localmente
 
 Requer Docker. A credencial de serviço vem de cloud.maptiler.com/account/credentials.
@@ -75,8 +91,11 @@ Para gerar um token: `python -c "import secrets; print(secrets.token_urlsafe(32)
 | `POST /v1/checks` | Agendador (`CHECK_TOKEN`) ou administrador | Consulta o MapTiler e grava; 502 se a consulta falhar, 429 se a última foi há menos de 10 minutos |
 | `GET /v1/usage` | Projetos clientes ou administrador | Consumo do período, percentuais, faixa, projeção, detalhe por serviço e por chave |
 | `GET /v1/usage/history?days=30` | Projetos clientes ou administrador | Consumo dia a dia (1 a 400 dias) |
+| `GET /v1/checks?limit=20` | Administrador | Verificações recentes, com sucesso ou falha (1 a 200) |
 | `GET /v1/alerts?limit=50` | Administrador | Histórico de avisos, com o resultado de cada envio |
 | `POST /v1/alerts/test` | Administrador | Manda um aviso de teste em cada canal configurado (1 por minuto) |
+| `POST /v1/reports/daily` | Agendador ou administrador | Manda o relatório diário por e-mail (1 por dia) |
+| `GET /painel` | Administrador (navegador) | Painel; pede o `ADMIN_TOKEN` na própria página |
 | `GET /docs`, `GET /openapi.json` | Quem for integrar | Documentação gerada automaticamente |
 
 Exemplo de `GET /v1/usage` (consumo real de 14/11/2026, reduzido):

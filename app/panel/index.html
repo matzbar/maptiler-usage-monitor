@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>Monitor MapTiler</title>
+<link rel="stylesheet" href="/painel/static/painel.css">
+<script src="/painel/static/painel.js" defer></script>
+</head>
+<body>
+<header class="topo">
+  <div>
+    <h1>Monitor MapTiler</h1>
+    <p class="sub" id="atualizado"></p>
+  </div>
+  <nav class="acoes" id="acoes" hidden>
+    <button type="button" id="btn-atualizar">Atualizar</button>
+    <button type="button" id="btn-verificar">Verificar agora</button>
+    <button type="button" id="btn-teste">Testar avisos</button>
+    <button type="button" id="btn-sair" class="secundario">Sair</button>
+  </nav>
+</header>
+
+<main>
+  <section id="entrar" class="cartao entrar" hidden>
+    <h2>Entrar</h2>
+    <p>Cole o <code>ADMIN_TOKEN</code>. Ele fica só nesta aba do navegador e é apagado quando ela é fechada.</p>
+    <form id="form-entrar">
+      <label for="token">Token de administrador</label>
+      <input id="token" name="token" type="password" autocomplete="off" spellcheck="false" required minlength="32">
+      <button type="submit">Entrar</button>
+    </form>
+    <p id="erro-entrar" class="erro" role="alert"></p>
+  </section>
+
+  <div id="painel" hidden>
+    <p id="mensagem" class="mensagem" role="status" hidden></p>
+
+    <section class="cartao" aria-labelledby="t-situacao">
+      <h2 id="t-situacao">Situação</h2>
+      <div id="situacao"></div>
+    </section>
+
+    <section class="cartao" aria-labelledby="t-consumo">
+      <h2 id="t-consumo">Consumo do período</h2>
+      <div id="medidores" class="medidores"></div>
+    </section>
+
+    <section class="cartao" aria-labelledby="t-grafico">
+      <h2 id="t-grafico">Requests acumulados no período</h2>
+      <div id="grafico" class="grafico"></div>
+    </section>
+
+    <div class="duas-colunas">
+      <section class="cartao" aria-labelledby="t-chaves">
+        <h2 id="t-chaves">Por chave do MapTiler</h2>
+        <div id="chaves"></div>
+      </section>
+      <section class="cartao" aria-labelledby="t-servicos">
+        <h2 id="t-servicos">Por serviço</h2>
+        <div id="servicos"></div>
+      </section>
+    </div>
+
+    <section class="cartao" aria-labelledby="t-avisos">
+      <h2 id="t-avisos">Avisos</h2>
+      <div id="avisos"></div>
+    </section>
+
+    <section class="cartao" aria-labelledby="t-verificacoes">
+      <h2 id="t-verificacoes">Verificações</h2>
+      <div id="verificacoes"></div>
+    </section>
+
+    <details class="cartao">
+      <summary>Consumo dia a dia</summary>
+      <div id="diario"></div>
+    </details>
+  </div>
+</main>
+</body>
+</html>

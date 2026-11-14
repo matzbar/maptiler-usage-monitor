@@ -201,7 +201,8 @@ class MongoStorage:
         return await cursor.to_list(None)
 
     async def recent_checks(self, limit: int) -> list[dict]:
-        cursor = self._checks.find({}, {"_id": 0, "status": 1, "checked_at": 1, "error": 1}).sort(
+        """Verificações mais recentes, sem os detalhes pesados (dia a dia, por chave, por serviço)."""
+        cursor = self._checks.find({}, {"_id": 0, "daily": 0, "by_key": 0, "by_service": 0}).sort(
             "checked_at", -1).limit(limit)
         return await cursor.to_list(None)
 

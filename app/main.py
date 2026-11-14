@@ -5,12 +5,14 @@ Rodar: uvicorn app.main:create_app --factory
 import datetime as dt
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Callable, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.staticfiles import StaticFiles
 from pymongo.errors import PyMongoError
 
 from app import __version__
@@ -23,12 +25,13 @@ from app.logs import setup_logging
 from app.maptiler import AnalyticsClient
 from app.monitoring.check import Monitor, utcnow
 from app.ratelimit import RateLimiter, client_ip
-from app.schemas import (AlertRecord, AlertsResponse, CheckResponse, HealthResponse, HistoryResponse,
-                         TestAlertResponse, TooSoonResponse, UsageResponse)
+from app.schemas import (AlertRecord, AlertsResponse, CheckResponse, ChecksResponse, HealthResponse,
+                         HistoryResponse, ReportResponse, TestAlertResponse, TooSoonResponse, UsageResponse)
 from app.security import headers_for
 from app.storage import MemoryStorage, MongoStorage, Storage
 
 TEST_ALERT_INTERVAL_S = 60  # no máximo um teste de aviso por minuto
+PANEL_DIR = Path(__file__).parent / "panel"
 
 logger = logging.getLogger("monitor.api")
 
@@ -157,7 +160,15 @@ def create_app(
 
     @app.get("/", include_in_schema=False)
     async def root():
-        return {"name": "maptiler-usage-monitor", "version": __version__, "docs": "/docs"}
+        return {"name": "maptiler-usage-monitor", "version": __version__, "docs": "/docs", "painel": "/painel"}
+
+    # Painel do administrador: página estática (sem dados). Os dados vêm das rotas /v1, com o ADMIN_TOKEN que a
+    # pessoa digita na página e que fica só na aba do navegador (sessionStorage).
+    app.mount("/painel/static", StaticFiles(directory=PANEL_DIR / "static"), name="painel-static")
+
+    @app.get("/painel", include_in_schema=False)
+    async def panel():
+        return FileResponse(PANEL_DIR / "index.html", media_type="text/html; charset=utf-8")
 
     @app.get("/health", response_model=HealthResponse, tags=["saúde"], summary="A API está no ar?")
     async def health():
@@ -198,6 +209,22 @@ def create_app(
     async def history(request: Request, days: int = Query(30, ge=1, le=400, description="Quantos dias"),
                       _who: Principal = Depends(require("client", "admin"))):
         return HistoryResponse(days=days, daily=await request.app.state.monitor.history(days))
+
+    @app.get("/v1/checks", response_model=ChecksResponse, tags=["verificação"],
+             summary="Verificações mais recentes", description="Bem-sucedidas e com falha. Só administrador.")
+    async def checks_history(request: Request, limit: int = Query(20, ge=1, le=200),
+                             _who: Principal = Depends(require("admin"))):
+        records = await request.app.state.storage.recent_checks(limit)
+        return ChecksResponse(checks=[check_summary(r) for r in records])
+
+    @app.post("/v1/reports/daily", response_model=ReportResponse, tags=["alertas"],
+              summary="Manda o relatório diário por e-mail",
+              description="Usado pelo agendador às 9h (horário de Brasília). No máximo um relatório por dia: "
+                          "chamadas repetidas devolvem already_sent.")
+    async def daily_report(request: Request, _who: Principal = Depends(require("scheduler", "admin"))):
+        usage_now = await request.app.state.monitor.usage(None)
+        recent = await request.app.state.storage.recent_checks(100)
+        return ReportResponse(**await request.app.state.alerts.send_daily_report(usage_now, recent))
 
     @app.get("/v1/alerts", response_model=AlertsResponse, tags=["alertas"], summary="Histórico de avisos",
              description="Cada faixa atingida, por métrica e canal, com o resultado do envio. Só administrador.")
