@@ -38,3 +38,32 @@ def test_secrets_are_hidden_from_repr():
     text = repr(s)
     for secret in ("segredo-do-maptiler", TOKEN_A, TOKEN_B, "senha"):
         assert secret not in text
+
+
+def test_alert_settings():
+    s = load_settings({"ALERT_EMAIL_TO": "a@example.com, b@example.com", "ALERT_WHATSAPP_PHONE": "55 (11) 91234-5678",
+                       "ALERT_RULES": "80:email,95:email+whatsapp"})
+    assert s.alert_email_to == ("a@example.com", "b@example.com")
+    assert s.alert_whatsapp_phone == "+5511912345678"
+    assert s.alert_rules == ((80, frozenset({"email"})), (95, frozenset({"email", "whatsapp"})))
+    default = load_settings({})
+    assert [t for t, _ in default.alert_rules] == [50, 70, 80, 90, 100]
+    assert default.alert_email_from == "MapTiler Monitor <onboarding@resend.dev>"
+
+
+@pytest.mark.parametrize("env,message", [
+    ({"ALERT_EMAIL_TO": "não-é-email"}, "ALERT_EMAIL_TO"),
+    ({"ALERT_WHATSAPP_PHONE": "123"}, "ALERT_WHATSAPP_PHONE"),
+    ({"ALERT_TIMEZONE": "Marte/Base"}, "ALERT_TIMEZONE"),
+    ({"ALERT_RULES": "80:sms"}, "ALERT_RULES"),
+])
+def test_invalid_alert_settings(env, message):
+    with pytest.raises(ValueError, match=message):
+        load_settings(env)
+
+
+def test_alert_secrets_hidden_from_repr():
+    s = load_settings({"RESEND_API_KEY": "re_segredo", "CALLMEBOT_API_KEY": "123987", "ALERT_EMAIL_TO": "eu@example.com",
+                       "ALERT_WHATSAPP_PHONE": "+5511912345678"})
+    for secret in ("re_segredo", "123987", "eu@example.com", "5511912345678"):
+        assert secret not in repr(s)

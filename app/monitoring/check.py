@@ -35,11 +35,13 @@ class CheckOutcome:
 
 
 class Monitor:
-    def __init__(self, settings: Settings, storage: Storage, analytics, clock: Callable[[], dt.datetime] = utcnow):
+    def __init__(self, settings: Settings, storage: Storage, analytics, clock: Callable[[], dt.datetime] = utcnow,
+                 alerts=None):
         self.settings = settings
         self.storage = storage
         self.analytics = analytics
         self.clock = clock
+        self.alerts = alerts  # AlertService (opcional): roda depois de cada verificação
         self._lock = asyncio.Lock()
         self._background: Optional[asyncio.Task] = None
 
@@ -84,6 +86,13 @@ class Monitor:
             record.update(status="ok", period_changed=changed, **snapshot)
         record["duration_ms"] = round((time.monotonic() - t0) * 1000)
         await self.storage.save_check(record)
+        if self.alerts is not None:
+            # Um problema nos alertas não desfaz a verificação, que já está gravada.
+            try:
+                record["notifications"] = await self.alerts.after_check(record)
+            except Exception:
+                logger.exception("falha ao processar os alertas", extra={"event": "alerts_crashed"})
+                record["notifications"] = []
         extra = {"event": "check_finished", "trigger": trigger, "status": record["status"],
                  "duration_ms": record["duration_ms"]}
         if record["status"] == "ok":

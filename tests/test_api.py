@@ -154,3 +154,41 @@ def test_database_down_answers_503():
         r = http.get("/v1/usage", headers=bearer(ADMIN))
         assert r.status_code == 503 and "banco" in r.json()["detail"]
         assert http.get("/health").status_code == 200
+
+
+@pytest.fixture
+def alert_env():
+    """API com canais simulados e consumo de 91% (faixa de e-mail e WhatsApp)."""
+    from tests.helpers import account, fake_channels
+
+    storage, clock = MemoryStorage(), Clock(at("2026-11-14"))
+    analytics, channels = FakeAnalytics(account([("2026-11-14", 91_000)])), fake_channels()
+    client_key = asyncio.run(create_client(storage, "HydrantRouteSP", [KEY_A_ID], clock()))
+    app = create_app(make_settings(), storage, analytics, clock, configure_logging=False, channels=channels)
+    with TestClient(app) as http:
+        yield http, channels, clock, client_key
+
+
+def test_check_reports_notifications_and_alerts_history(alert_env):
+    http, channels, _, client_key = alert_env
+    body = http.post("/v1/checks", headers=bearer(CHECK)).json()
+    sent = {(n["threshold"], n["channel"], n["status"]) for n in body["notifications"]}
+    assert {(90, "email", "sent"), (90, "whatsapp", "sent"), (80, "email", "skipped")} <= sent
+    assert len(channels["email"].sent) == 1 and len(channels["whatsapp"].sent) == 1
+    assert http.get("/v1/alerts", headers=bearer(client_key)).status_code == 403
+    alerts = http.get("/v1/alerts?limit=10", headers=bearer(ADMIN)).json()["alerts"]
+    ninety = next(a for a in alerts if a["id"] == "2026-11-14:requests:90:email")
+    assert ninety["status"] == "sent" and ninety["percent"] == 91.0 and ninety["attempts"] == 1
+    assert ninety["period"] == {"since": "2026-11-14", "until": "2026-12-13"}
+
+
+def test_alert_test_route_and_its_limit(alert_env):
+    http, channels, clock, _ = alert_env
+    r = http.post("/v1/alerts/test", headers=bearer(ADMIN))
+    assert r.status_code == 200
+    assert r.json()["results"] == [{"channel": "email", "status": "sent", "error": None},
+                                   {"channel": "whatsapp", "status": "sent", "error": None}]
+    assert http.post("/v1/alerts/test", headers=bearer(ADMIN)).status_code == 429
+    clock.advance(seconds=61)
+    assert http.post("/v1/alerts/test", headers=bearer(ADMIN)).status_code == 200
+    assert http.post("/v1/alerts/test", headers=bearer(CHECK)).status_code == 403

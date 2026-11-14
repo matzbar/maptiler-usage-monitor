@@ -86,3 +86,28 @@ class Clock:
 
 def at(day: str, hour: int = 12) -> dt.datetime:
     return dt.datetime.fromisoformat(day).replace(hour=hour, tzinfo=dt.timezone.utc)
+
+
+class FakeChannel:
+    """Canal simulado: guarda as mensagens; `fail` faz os próximos envios falharem."""
+
+    def __init__(self, name: str, configured: bool = True):
+        self.name = name
+        self.configured = configured
+        self.sent: list[tuple] = []  # (message, key)
+        self.fail = 0
+
+    async def send(self, message, key) -> None:
+        from app.alerts.channels import ChannelError
+
+        if self.fail:
+            self.fail -= 1
+            raise ChannelError(f"{self.name} fora do ar (simulado)")
+        self.sent.append((message, key))
+
+    async def aclose(self) -> None:
+        return None
+
+
+def fake_channels(email: bool = True, whatsapp: bool = True) -> dict:
+    return {"email": FakeChannel("email", email), "whatsapp": FakeChannel("whatsapp", whatsapp)}

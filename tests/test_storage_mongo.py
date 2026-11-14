@@ -81,3 +81,49 @@ async def test_clients(db_name):
     finally:
         await storage._client.drop_database(db_name)
         await storage.close()
+
+
+def notification(_id: str, status: str = "failed", attempts: int = 1, minutes_ago: int = 30, **extra) -> dict:
+    now = dt.datetime(2026, 11, 14, 12, 0, tzinfo=UTC)
+    when = now - dt.timedelta(minutes=minutes_ago)
+    return {"_id": _id, "kind": "usage", "channel": "email", "status": status, "attempts": attempts,
+            "created_at": when, "updated_at": when, "lease_until": None, "sent_at": None, "last_error": None,
+            "period": {"since": "2026-11-14", "until": "2026-12-13"}, "metric": "requests", "threshold": 80, **extra}
+
+
+async def test_notifications(db_name):
+    storage = MongoStorage(URL, db_name, retention_days=400)
+    now = dt.datetime(2026, 11, 14, 12, 0, tzinfo=UTC)
+    lease, failed_before = now + dt.timedelta(minutes=5), now - dt.timedelta(minutes=10)
+    try:
+        await storage.connect()
+        assert await storage.claim_notification(notification("a")) is True
+        assert await storage.claim_notification(notification("a")) is False  # mesmo aviso: não duplica
+
+        claimed = await storage.claim_retry("a", now, lease, failed_before, 3)
+        assert claimed["status"] == "sending" and claimed["attempts"] == 2
+        assert await storage.claim_retry("a", now, lease, failed_before, 3) is None  # já reservado
+
+        await storage.claim_notification(notification("recente", minutes_ago=5))
+        assert await storage.claim_retry("recente", now, lease, failed_before, 3) is None  # cedo demais
+        await storage.claim_notification(notification("esgotado", attempts=3))
+        assert await storage.claim_retry("esgotado", now, lease, failed_before, 3) is None
+        await storage.claim_notification(notification("travado", status="sending", lease_until=now - dt.timedelta(minutes=1)))
+        assert (await storage.claim_retry("travado", now, lease, failed_before, 3))["status"] == "sending"
+
+        await storage.update_notification("a", {"status": "sent", "sent_at": now})
+        ids = [d["_id"] for d in await storage.retry_candidates(now - dt.timedelta(days=3), 3)]
+        assert "a" not in ids and "esgotado" not in ids and "recente" in ids
+        assert len(await storage.notifications_for_period("2026-11-14")) == 4
+        assert [d["_id"] for d in await storage.list_notifications(2)] == ["recente", "travado"]
+
+        await storage.save_check(check("2026-11-14", 6))
+        await storage.save_check(check("2026-11-14", 7, status="failed"))
+        assert [c["status"] for c in await storage.recent_checks(5)] == ["failed", "ok"]
+
+        indexes = await storage._notifications.index_information()
+        assert indexes["created_at_ttl"]["expireAfterSeconds"] == 400 * 86400
+        assert "period_metric_channel" in indexes and "status_created_at" in indexes
+    finally:
+        await storage._client.drop_database(db_name)
+        await storage.close()
