@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Testes (pytest + pip-audit)
+    runs-on: ubuntu-latest
+    services:
+      # MongoDB de verdade para os testes do armazenamento (índices, prazo do histórico, projetos).
+      mongo:
+        image: mongo:8.0
+        ports: ["27017:27017"]
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ping:1})'"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      MONGO_TEST_URL: mongodb://localhost:27017
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+      - run: pip install -r requirements-dev.txt pip-audit
+      - run: pytest
+      - run: pip-audit -r requirements.txt
+
+  docker:
+    name: Docker (build + teste da imagem)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      # Monta a imagem com o mesmo Dockerfile da hospedagem, sem publicar em lugar nenhum.
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          load: true
+          tags: monitor:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Sobe o contêiner e confere saúde, autenticação e segurança
+        run: |
+          docker run -d --name app -p 8000:8000 monitor:ci
+          for _ in $(seq 1 30); do curl -fsS http://localhost:8000/health >/dev/null 2>&1 && break; sleep 1; done
+          echo "Health:";                  curl -fsS http://localhost:8000/health | grep '"status":"ok"'
+          echo "Rota de dados exige token:"; test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8000/v1/usage)" = 401
+          echo "Cabeçalho de segurança:";  curl -fsSI http://localhost:8000/health | grep -i "^content-security-policy: default-src 'none'"
+          echo "Usuário sem root:";        docker exec app id -u | grep -x 10001
+          echo "HEALTHCHECK do Docker:"
+          for _ in $(seq 1 30); do
+            s=$(docker inspect --format '{{.State.Health.Status}}' app)
+            [ "$s" = "healthy" ] && break
+            [ "$s" = "unhealthy" ] && exit 1
+            sleep 3
+          done
+          echo "$s"; test "$s" = "healthy"
+      - name: Log do contêiner (só se algo falhar)
+        if: failure()
+        run: docker logs app

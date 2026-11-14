@@ -1,0 +1,22 @@
+# Uso local: API + MongoDB. Os segredos vêm do ambiente (ou de um arquivo .env, fora do Git):
+#   MAPTILER_SERVICE_TOKEN=... CHECK_TOKEN=... ADMIN_TOKEN=... docker compose up -d --build
+services:
+  api:
+    build: .
+    ports:
+      - "127.0.0.1:${MONITOR_PORT:-8000}:8000"  # MONITOR_PORT=8010 se a 8000 estiver ocupada
+    environment:
+      MONGO_URL: mongodb://mongo:27017
+      DB_NAME: maptiler_monitor
+      MAPTILER_SERVICE_TOKEN: ${MAPTILER_SERVICE_TOKEN:-}
+      CHECK_TOKEN: ${CHECK_TOKEN:-}
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-}
+    depends_on:
+      - mongo
+  mongo:
+    image: mongo:8.0
+    volumes:
+      - mongo-data:/data/db
+    # Sem porta publicada: o banco só é acessível pela API.
+volumes:
+  mongo-data:

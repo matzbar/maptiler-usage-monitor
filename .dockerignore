@@ -1,0 +1,12 @@
+# Só o necessário para a imagem.
+.git
+.github
+tests
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.venv
+**/venv
+**/.env
+**/.env.*
+.DS_Store

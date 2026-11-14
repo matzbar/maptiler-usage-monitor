@@ -1,0 +1,29 @@
+# Dependabot: abre pull requests com atualizações de dependências; cada PR passa pelo CI antes de qualquer merge.
+# - minor/patch agrupadas num PR por tipo; versões maiores (major) em PRs separados.
+# - cooldown: só sugere versões publicadas há pelo menos 14 dias. Correções de segurança não esperam.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /
+    schedule: { interval: weekly, day: monday, time: "06:00", timezone: America/Sao_Paulo }
+    cooldown: { default-days: 14 }
+    open-pull-requests-limit: 5
+    commit-message: { prefix: "deps" }
+    groups:
+      python-menores:
+        update-types: [minor, patch]
+
+  - package-ecosystem: docker # imagem base do Dockerfile
+    directory: /
+    schedule: { interval: weekly, day: monday, time: "06:00", timezone: America/Sao_Paulo }
+    cooldown: { default-days: 14 }
+    commit-message: { prefix: "deps(docker)" }
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly, day: monday, time: "06:00", timezone: America/Sao_Paulo }
+    cooldown: { default-days: 14 }
+    commit-message: { prefix: "deps(ci)" }
+    groups:
+      acoes-do-ci:
+        patterns: ["*"]

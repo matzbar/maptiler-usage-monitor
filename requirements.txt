@@ -1,0 +1,6 @@
+# Versões fixas para builds reproduzíveis. Atualize com cuidado e rode `pytest` + `pip-audit`.
+fastapi==0.162.5
+uvicorn[standard]==0.54.0
+pydantic==2.14.3
+httpx==0.28.1
+pymongo==4.19.0
