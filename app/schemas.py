@@ -82,6 +82,20 @@ class CheckError(BaseModel):
     http_status: Optional[int] = None
 
 
+NotificationStatus = Literal["recorded", "sending", "sent", "failed", "skipped"]
+STATUS_HELP = ("recorded: só registrado (aparece no painel); sending: enviando; sent: enviado; failed: falhou "
+               "(nova tentativa nas próximas verificações); skipped: não enviado (superado por uma faixa mais alta "
+               "ou canal não configurado)")
+
+
+class NotificationSummary(BaseModel):
+    kind: Literal["usage", "monitor_down", "test"]
+    metric: Optional[Literal["requests", "sessions"]] = None
+    threshold: Optional[int] = Field(None, description="Faixa, em % da cota")
+    channel: Literal["panel", "email", "whatsapp"]
+    status: NotificationStatus = Field(description=STATUS_HELP)
+
+
 class CheckResponse(BaseModel):
     status: Literal["ok", "failed"]
     checked_at: dt.datetime
@@ -93,6 +107,33 @@ class CheckResponse(BaseModel):
     level: Optional[Level] = Field(None, description=LEVEL_HELP)
     period_changed: Optional[bool] = Field(None, description="true na primeira verificação de um novo período")
     error: Optional[CheckError] = None
+    notifications: list[NotificationSummary] = Field([], description="Avisos criados ou reenviados nesta verificação")
+
+
+class AlertRecord(NotificationSummary):
+    id: str
+    period: Optional[Period] = None
+    percent: Optional[float] = Field(None, description="Porcentagem da cota quando o aviso foi criado")
+    used: Optional[int] = None
+    quota: Optional[int] = None
+    attempts: int
+    created_at: dt.datetime
+    sent_at: Optional[dt.datetime] = None
+    last_error: Optional[str] = None
+
+
+class AlertsResponse(BaseModel):
+    alerts: list[AlertRecord] = Field(description="Do mais recente para o mais antigo")
+
+
+class TestResult(BaseModel):
+    channel: Literal["email", "whatsapp"]
+    status: Literal["sent", "failed", "not_configured", "sending"]
+    error: Optional[str] = None
+
+
+class TestAlertResponse(BaseModel):
+    results: list[TestResult]
 
 
 class TooSoonResponse(BaseModel):

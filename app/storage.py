@@ -2,6 +2,8 @@
 
 Coleções (database DB_NAME, padrão maptiler_monitor):
   - maptiler_usage_monitor: uma verificação por documento (status ok ou failed), guardada por RETENTION_DAYS;
+  - maptiler_notification_history: um aviso por documento. O _id junta período, métrica, faixa e canal, então
+    o mesmo aviso não pode ser criado duas vezes, nem por verificações simultâneas;
   - clients: projetos clientes, com o hash da chave de acesso (nunca a chave).
 """
 import copy
@@ -12,7 +14,17 @@ from typing import Optional, Protocol
 logger = logging.getLogger("monitor.storage")
 
 CHECKS = "maptiler_usage_monitor"
+NOTIFICATIONS = "maptiler_notification_history"
 CLIENTS = "clients"
+
+
+def _retry_ready(doc: dict, now: dt.datetime, failed_before: dt.datetime, max_attempts: int) -> bool:
+    """Pode tentar de novo: falhou há algum tempo, ou ficou "enviando" além do prazo (o processo caiu no meio)."""
+    if doc["attempts"] >= max_attempts:
+        return False
+    if doc["status"] == "failed":
+        return doc["updated_at"] <= failed_before
+    return doc["status"] == "sending" and doc.get("lease_until") is not None and doc["lease_until"] < now
 
 
 class DuplicateClient(Exception):
@@ -26,6 +38,14 @@ class Storage(Protocol):
     async def last_check(self) -> Optional[dict]: ...
     async def last_ok_check(self) -> Optional[dict]: ...
     async def latest_ok_per_period(self, since: dt.datetime) -> list[dict]: ...
+    async def recent_checks(self, limit: int) -> list[dict]: ...
+    async def claim_notification(self, doc: dict) -> bool: ...
+    async def update_notification(self, notification_id: str, fields: dict) -> None: ...
+    async def claim_retry(self, notification_id: str, now: dt.datetime, lease_until: dt.datetime,
+                          failed_before: dt.datetime, max_attempts: int) -> Optional[dict]: ...
+    async def retry_candidates(self, created_since: dt.datetime, max_attempts: int) -> list[dict]: ...
+    async def notifications_for_period(self, period_since: str) -> list[dict]: ...
+    async def list_notifications(self, limit: int) -> list[dict]: ...
     async def add_client(self, doc: dict) -> None: ...
     async def client_by_hash(self, key_hash: str) -> Optional[dict]: ...
     async def list_clients(self) -> list[dict]: ...
@@ -37,6 +57,7 @@ class MemoryStorage:
 
     def __init__(self) -> None:
         self.checks: list[dict] = []
+        self.notifications: dict[str, dict] = {}
         self.clients: list[dict] = []
 
     async def connect(self) -> None:
@@ -64,6 +85,38 @@ class MemoryStorage:
             if check["status"] == "ok" and check["checked_at"] >= since:
                 latest.setdefault(check["period"]["since"], check)
         return [copy.deepcopy(c) for c in latest.values()]
+
+    async def recent_checks(self, limit: int) -> list[dict]:
+        return copy.deepcopy(sorted(self.checks, key=lambda c: c["checked_at"], reverse=True)[:limit])
+
+    async def claim_notification(self, doc: dict) -> bool:
+        if doc["_id"] in self.notifications:
+            return False
+        self.notifications[doc["_id"]] = copy.deepcopy(doc)
+        return True
+
+    async def update_notification(self, notification_id: str, fields: dict) -> None:
+        self.notifications[notification_id].update(copy.deepcopy(fields))
+
+    async def claim_retry(self, notification_id, now, lease_until, failed_before, max_attempts):
+        doc = self.notifications.get(notification_id)
+        if doc is None or not _retry_ready(doc, now, failed_before, max_attempts):
+            return None
+        doc.update(status="sending", lease_until=lease_until, updated_at=now, attempts=doc["attempts"] + 1)
+        return copy.deepcopy(doc)
+
+    async def retry_candidates(self, created_since: dt.datetime, max_attempts: int) -> list[dict]:
+        found = [d for d in self.notifications.values() if d["status"] in ("failed", "sending")
+                 and d["attempts"] < max_attempts and d["created_at"] >= created_since]
+        return copy.deepcopy(sorted(found, key=lambda d: d["created_at"]))
+
+    async def notifications_for_period(self, period_since: str) -> list[dict]:
+        return copy.deepcopy([d for d in self.notifications.values()
+                              if (d.get("period") or {}).get("since") == period_since])
+
+    async def list_notifications(self, limit: int) -> list[dict]:
+        ordered = sorted(self.notifications.values(), key=lambda d: (d["created_at"], d["_id"]), reverse=True)
+        return copy.deepcopy(ordered[:limit])
 
     async def add_client(self, doc: dict) -> None:
         if any(c["name"] == doc["name"] or c["key_hash"] == doc["key_hash"] for c in self.clients):
@@ -93,28 +146,35 @@ class MongoStorage:
                                         appname="maptiler-usage-monitor")
         self._db = self._client[db_name]
         self._checks = self._db[CHECKS]
+        self._notifications = self._db[NOTIFICATIONS]
         self._clients = self._db[CLIENTS]
         self._retention_s = retention_days * 86400
 
     async def connect(self) -> None:
         """Cria os índices (se já existirem, nada muda)."""
-        await self._ensure_ttl()
+        await self._ensure_ttl(CHECKS, "checked_at", "checked_at_ttl")
         await self._checks.create_index([("status", 1), ("checked_at", -1)], name="status_checked_at")
+        await self._ensure_ttl(NOTIFICATIONS, "created_at", "created_at_ttl")
+        await self._notifications.create_index([("period.since", 1), ("metric", 1), ("channel", 1)],
+                                               name="period_metric_channel")
+        await self._notifications.create_index([("status", 1), ("created_at", 1)], name="status_created_at")
         await self._clients.create_index("key_hash", unique=True, name="key_hash_unique")
         await self._clients.create_index("name", unique=True, name="name_unique")
 
-    async def _ensure_ttl(self) -> None:
-        """Índice TTL: o MongoDB apaga sozinho as verificações mais antigas que RETENTION_DAYS."""
+    async def _ensure_ttl(self, collection: str, field_name: str, index_name: str) -> None:
+        """Índice TTL: o MongoDB apaga sozinho os documentos mais antigos que RETENTION_DAYS."""
         from pymongo.errors import OperationFailure
 
         try:
-            await self._checks.create_index("checked_at", name="checked_at_ttl", expireAfterSeconds=self._retention_s)
+            await self._db[collection].create_index(field_name, name=index_name,
+                                                    expireAfterSeconds=self._retention_s)
         except OperationFailure as exc:
             if exc.code not in (85, 86):  # IndexOptionsConflict / IndexKeySpecsConflict: só o prazo mudou
                 raise
-            await self._db.command("collMod", CHECKS,
-                                   index={"name": "checked_at_ttl", "expireAfterSeconds": self._retention_s})
+            await self._db.command("collMod", collection,
+                                   index={"name": index_name, "expireAfterSeconds": self._retention_s})
             logger.info("prazo do histórico atualizado", extra={"event": "retention_updated",
+                                                                "collection": collection,
                                                                 "retention_s": self._retention_s})
 
     async def close(self) -> None:
@@ -138,6 +198,49 @@ class MongoStorage:
             {"$replaceRoot": {"newRoot": "$doc"}},
             {"$project": {"_id": 0, "checked_at": 1, "period": 1, "daily": 1}},
         ])
+        return await cursor.to_list(None)
+
+    async def recent_checks(self, limit: int) -> list[dict]:
+        cursor = self._checks.find({}, {"_id": 0, "status": 1, "checked_at": 1, "error": 1}).sort(
+            "checked_at", -1).limit(limit)
+        return await cursor.to_list(None)
+
+    async def claim_notification(self, doc: dict) -> bool:
+        """Cria o aviso. False se ele já existe: outra verificação já cuidou dele."""
+        from pymongo.errors import DuplicateKeyError
+
+        try:
+            await self._notifications.insert_one(dict(doc))
+        except DuplicateKeyError:
+            return False
+        return True
+
+    async def update_notification(self, notification_id: str, fields: dict) -> None:
+        await self._notifications.update_one({"_id": notification_id}, {"$set": fields})
+
+    async def claim_retry(self, notification_id, now, lease_until, failed_before, max_attempts):
+        """Reserva o aviso para uma nova tentativa, numa operação só: duas verificações não reenviam juntas."""
+        from pymongo import ReturnDocument
+
+        return await self._notifications.find_one_and_update(
+            {"_id": notification_id, "attempts": {"$lt": max_attempts},
+             "$or": [{"status": "failed", "updated_at": {"$lte": failed_before}},
+                     {"status": "sending", "lease_until": {"$lt": now}}]},
+            {"$set": {"status": "sending", "lease_until": lease_until, "updated_at": now}, "$inc": {"attempts": 1}},
+            return_document=ReturnDocument.AFTER,
+        )
+
+    async def retry_candidates(self, created_since: dt.datetime, max_attempts: int) -> list[dict]:
+        cursor = self._notifications.find({"status": {"$in": ["failed", "sending"]},
+                                           "attempts": {"$lt": max_attempts},
+                                           "created_at": {"$gte": created_since}}).sort("created_at", 1)
+        return await cursor.to_list(None)
+
+    async def notifications_for_period(self, period_since: str) -> list[dict]:
+        return await self._notifications.find({"period.since": period_since}).to_list(None)
+
+    async def list_notifications(self, limit: int) -> list[dict]:
+        cursor = self._notifications.find({}).sort([("created_at", -1), ("_id", -1)]).limit(limit)
         return await cursor.to_list(None)
 
     async def add_client(self, doc: dict) -> None:

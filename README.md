@@ -7,9 +7,9 @@ cobrança, porcentagem da cota, faixa de consumo, projeção até o fim do perí
 Outros projetos consultam o consumo por esta API, cada um com a própria chave, sem nunca receber a credencial de
 serviço do MapTiler, que dá acesso total à conta e fica só aqui.
 
-> **Situação:** em desenvolvimento. Pronto: consulta ao MapTiler, cálculo, histórico e leitura pela API.
-> Próximas etapas: alertas por e-mail (Resend) e WhatsApp (CallMeBot), agendamento a cada 6 horas pelo
-> GitHub Actions e painel do administrador.
+> **Situação:** em desenvolvimento. Pronto: consulta ao MapTiler, cálculo, histórico, leitura pela API e alertas
+> por e-mail (Resend) e WhatsApp (CallMeBot). Próximas etapas: agendamento a cada 6 horas pelo GitHub Actions e
+> painel do administrador.
 
 ## Como funciona
 
@@ -23,6 +23,33 @@ serviço do MapTiler, que dá acesso total à conta e fica só aqui.
 Faixas (`level`), pela maior porcentagem entre requests e sessions: `normal` (abaixo de 50%), `notice` (50%),
 `warning` (70%), `high` (80%), `very_high` (90%) e `critical` (100%). No plano Free, ao atingir 100% o MapTiler
 pausa o serviço até o próximo período.
+
+## Alertas
+
+Depois de cada verificação, requests e sessions são avaliados **separadamente**:
+
+| Consumo da cota | O que acontece |
+| --- | --- |
+| 50% e 70% | Fica registrado (para o painel) |
+| 80% | E-mail |
+| 90% | E-mail e WhatsApp |
+| 100% | E-mail e WhatsApp (cota esgotada) |
+
+- **Uma vez por faixa, métrica, canal e período.** Cada aviso tem um identificador único no banco
+  (`período:métrica:faixa:canal`), então nem duas verificações simultâneas repetem o envio. No período seguinte,
+  as faixas voltam a valer.
+- **Salto de faixa:** de 60% direto para 92%, sai só o aviso de 90%; o de 80% fica registrado como superado.
+- **Falha no envio:** é tentado de novo nas verificações seguintes (até `ALERT_MAX_ATTEMPTS` vezes, com pelo menos
+  10 minutos entre tentativas). O e-mail usa a chave de idempotência do Resend, para não chegar duplicado.
+- **Monitor sem dados:** depois de `ALERT_FAILURE_STREAK` verificações seguidas com falha, um e-mail, uma vez por
+  sequência de falhas.
+- As faixas e os canais mudam em `ALERT_RULES`. Canal não configurado não falha: o aviso fica como `skipped`.
+- No WhatsApp, `sent` quer dizer que o CallMeBot aceitou a mensagem na fila dele. No plano gratuito, ela pode
+  levar de 15 a 20 minutos para chegar (observado em nov/2026). O e-mail chega em segundos, e por isso vai junto
+  em todas as faixas que usam WhatsApp.
+
+Para conferir os canais depois de configurar: `POST /v1/alerts/test` (administrador) manda uma mensagem de teste
+em cada um.
 
 ## Rodar localmente
 
@@ -48,6 +75,8 @@ Para gerar um token: `python -c "import secrets; print(secrets.token_urlsafe(32)
 | `POST /v1/checks` | Agendador (`CHECK_TOKEN`) ou administrador | Consulta o MapTiler e grava; 502 se a consulta falhar, 429 se a última foi há menos de 10 minutos |
 | `GET /v1/usage` | Projetos clientes ou administrador | Consumo do período, percentuais, faixa, projeção, detalhe por serviço e por chave |
 | `GET /v1/usage/history?days=30` | Projetos clientes ou administrador | Consumo dia a dia (1 a 400 dias) |
+| `GET /v1/alerts?limit=50` | Administrador | Histórico de avisos, com o resultado de cada envio |
+| `POST /v1/alerts/test` | Administrador | Manda um aviso de teste em cada canal configurado (1 por minuto) |
 | `GET /docs`, `GET /openapi.json` | Quem for integrar | Documentação gerada automaticamente |
 
 Exemplo de `GET /v1/usage` (consumo real de 14/11/2026, reduzido):
@@ -102,12 +131,24 @@ Todas as variáveis, com explicação e valor padrão, estão em [`.env.example`
 `MAPTILER_SERVICE_TOKEN`, `MONGO_URL`, `CHECK_TOKEN` e `ADMIN_TOKEN`. As cotas (`QUOTA_REQUESTS` e
 `QUOTA_SESSIONS`) mudam junto com o plano do MapTiler.
 
+Para os alertas:
+
+- **E-mail (Resend):** crie uma conta em resend.com e uma chave em *API Keys* com permissão *Sending access*.
+  Preencha `RESEND_API_KEY` e `ALERT_EMAIL_TO`. Sem domínio próprio verificado, o Resend só entrega no e-mail da
+  própria conta do Resend.
+- **WhatsApp (CallMeBot, gratuito para uso pessoal):** salve o número do CallMeBot nos contatos e mande para ele
+  a mensagem de ativação, como explica a
+  [página do CallMeBot](https://www.callmebot.com/blog/free-api-whatsapp-messages/). Preencha
+  `ALERT_WHATSAPP_PHONE` (com +55) e `CALLMEBOT_API_KEY` (a chave que chega no WhatsApp).
+
 ## Dados guardados
 
 Database `DB_NAME` (padrão `maptiler_monitor`):
 
 - `maptiler_usage_monitor`: uma verificação por documento, apagada automaticamente depois de `RETENTION_DAYS`
   (padrão 400 dias);
+- `maptiler_notification_history`: um aviso por documento (faixa, canal, status, tentativas, último erro),
+  apagado depois do mesmo prazo;
 - `clients`: projetos clientes (nome, hash da chave, chaves do MapTiler, ativo ou não).
 
 No MongoDB Atlas, use um usuário com acesso só a esse database.
@@ -130,7 +171,8 @@ O CI roda os testes (com MongoDB), o `pip-audit` e o build e teste da imagem Doc
   As comparações são feitas em tempo constante.
 - Há limite de requisições por IP. As respostas levam cabeçalhos de segurança (CSP, HSTS em HTTPS,
   `X-Frame-Options`) e `Cache-Control: no-store` nos dados.
-- Os logs são estruturados (uma linha JSON por evento) e não contêm segredos.
+- Os logs são estruturados (uma linha JSON por evento) e não contêm segredos. A URL do CallMeBot (que leva
+  telefone e chave) nunca é registrada, e os erros dos canais saem sem chave, telefone ou e-mail.
 - A imagem Docker roda sem root.
 
 ## Licença

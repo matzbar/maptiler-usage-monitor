@@ -3,9 +3,54 @@ import os
 import re
 from dataclasses import dataclass, field
 from typing import Mapping, Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 # Tamanho mínimo de CHECK_TOKEN e ADMIN_TOKEN: tokens curtos seriam fáceis de adivinhar.
 MIN_TOKEN_LENGTH = 32
+
+# Faixas de alerta: "porcentagem:canais", canais separados por "+". panel = só registra (aparece no painel).
+DEFAULT_ALERT_RULES = "50:panel,70:panel,80:email,90:email+whatsapp,100:email+whatsapp"
+ALERT_CHANNELS = frozenset({"panel", "email", "whatsapp"})
+AlertRules = tuple[tuple[int, frozenset[str]], ...]
+
+
+def parse_alert_rules(raw: str) -> AlertRules:
+    rules = []
+    for part in (p.strip() for p in raw.split(",")):
+        if not part:
+            continue
+        threshold, _, channels = part.partition(":")
+        try:
+            value = int(threshold)
+        except ValueError:
+            raise ValueError(f"ALERT_RULES: faixa inválida em {part!r} (use porcentagem:canais)") from None
+        if not 1 <= value <= 1000:
+            raise ValueError(f"ALERT_RULES: a faixa {value} precisa ficar entre 1 e 1000")
+        names = frozenset(c.strip() for c in channels.split("+") if c.strip())
+        if not names or names - ALERT_CHANNELS:
+            raise ValueError(f"ALERT_RULES: em {part!r}, use os canais panel, email ou whatsapp")
+        rules.append((value, names))
+    thresholds = [t for t, _ in rules]
+    if len(set(thresholds)) != len(thresholds):
+        raise ValueError("ALERT_RULES: cada faixa pode aparecer uma vez só")
+    return tuple(sorted(rules, key=lambda r: r[0]))
+
+
+def _emails(raw: str) -> tuple[str, ...]:
+    emails = tuple(e.strip() for e in raw.split(",") if e.strip())
+    for email in emails:
+        if not re.fullmatch(r"[^@\s,<>]+@[^@\s,<>]+\.[^@\s,<>]+", email):
+            raise ValueError("ALERT_EMAIL_TO tem um endereço de e-mail inválido")
+    return emails
+
+
+def _phone(raw: str) -> str:
+    digits = re.sub(r"[\s().-]", "", raw)
+    if not digits:
+        return ""
+    if not re.fullmatch(r"\+?\d{8,15}", digits):
+        raise ValueError("ALERT_WHATSAPP_PHONE deve ter o código do país e o número, como +5511999998888")
+    return digits if digits.startswith("+") else "+" + digits
 
 
 @dataclass(frozen=True)
@@ -29,6 +74,16 @@ class Settings:
     client_ip_header: str = ""
     trusted_proxy_hops: int = 0
     build_commit: Optional[str] = None
+    # Alertas
+    alert_rules: AlertRules = field(default_factory=lambda: parse_alert_rules(DEFAULT_ALERT_RULES))
+    resend_api_key: str = field(default="", repr=False)
+    alert_email_from: str = "MapTiler Monitor <onboarding@resend.dev>"
+    alert_email_to: tuple[str, ...] = field(default=(), repr=False)  # dado pessoal: fora dos logs
+    callmebot_api_key: str = field(default="", repr=False)
+    alert_whatsapp_phone: str = field(default="", repr=False)
+    alert_max_attempts: int = 3  # tentativas de envio de cada aviso, nas verificações seguintes
+    alert_failure_streak: int = 3  # verificações seguidas com falha antes do e-mail "monitor sem dados"
+    alert_timezone: str = "America/Sao_Paulo"  # fuso dos horários escritos nas mensagens
 
 
 def _int(env: Mapping[str, str], name: str, default: int, minimum: int) -> int:
@@ -59,6 +114,11 @@ def load_settings(env: Mapping[str, str] = os.environ) -> Settings:
     db_name = (env.get("DB_NAME") or "maptiler_monitor").strip()
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,38}", db_name):
         raise ValueError("DB_NAME aceita só letras, números, _ e - (até 38 caracteres)")
+    timezone = (env.get("ALERT_TIMEZONE") or "America/Sao_Paulo").strip()
+    try:
+        ZoneInfo(timezone)
+    except (ZoneInfoNotFoundError, ValueError):
+        raise ValueError(f"ALERT_TIMEZONE: fuso desconhecido {timezone!r}") from None
     # No Render (que define RENDER=true), o IP do visitante vem no CF-Connecting-IP, escrito pela Cloudflare.
     on_render = bool(env.get("RENDER"))
     return Settings(
@@ -79,4 +139,13 @@ def load_settings(env: Mapping[str, str] = os.environ) -> Settings:
         client_ip_header=(env.get("CLIENT_IP_HEADER") or ("cf-connecting-ip" if on_render else "")).strip().lower(),
         trusted_proxy_hops=_int(env, "TRUSTED_PROXY_HOPS", 2 if on_render else 0, 0),
         build_commit=(env.get("RENDER_GIT_COMMIT") or env.get("GIT_COMMIT") or "")[:7] or None,
+        alert_rules=parse_alert_rules(env.get("ALERT_RULES") or DEFAULT_ALERT_RULES),
+        resend_api_key=(env.get("RESEND_API_KEY") or "").strip(),
+        alert_email_from=(env.get("ALERT_EMAIL_FROM") or "MapTiler Monitor <onboarding@resend.dev>").strip(),
+        alert_email_to=_emails(env.get("ALERT_EMAIL_TO") or ""),
+        callmebot_api_key=(env.get("CALLMEBOT_API_KEY") or "").strip(),
+        alert_whatsapp_phone=_phone(env.get("ALERT_WHATSAPP_PHONE") or ""),
+        alert_max_attempts=_int(env, "ALERT_MAX_ATTEMPTS", 3, 1),
+        alert_failure_streak=_int(env, "ALERT_FAILURE_STREAK", 3, 1),
+        alert_timezone=timezone,
     )

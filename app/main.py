@@ -14,15 +14,21 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pymongo.errors import PyMongoError
 
 from app import __version__
+from app.alerts.channels.email import ResendEmail
+from app.alerts.channels.whatsapp import CallMeBotWhatsApp
+from app.alerts.service import AlertService
 from app.auth import Principal, identify
 from app.config import Settings, load_settings
 from app.logs import setup_logging
 from app.maptiler import AnalyticsClient
 from app.monitoring.check import Monitor, utcnow
 from app.ratelimit import RateLimiter, client_ip
-from app.schemas import CheckResponse, HealthResponse, HistoryResponse, TooSoonResponse, UsageResponse
+from app.schemas import (AlertRecord, AlertsResponse, CheckResponse, HealthResponse, HistoryResponse,
+                         TestAlertResponse, TooSoonResponse, UsageResponse)
 from app.security import headers_for
 from app.storage import MemoryStorage, MongoStorage, Storage
+
+TEST_ALERT_INTERVAL_S = 60  # no máximo um teste de aviso por minuto
 
 logger = logging.getLogger("monitor.api")
 
@@ -43,7 +49,13 @@ bearer = HTTPBearer(auto_error=False, description="Chave do projeto, CHECK_TOKEN
 def check_summary(record: dict) -> CheckResponse:
     fields = ("status", "checked_at", "duration_ms", "trigger", "period", "requests", "sessions", "level",
               "period_changed", "error")
-    return CheckResponse(**{f: record.get(f) for f in fields})
+    return CheckResponse(**{f: record.get(f) for f in fields}, notifications=record.get("notifications") or [])
+
+
+def alert_record(doc: dict) -> AlertRecord:
+    fields = ("kind", "metric", "threshold", "channel", "status", "period", "percent", "used", "quota", "attempts",
+              "created_at", "sent_at", "last_error")
+    return AlertRecord(id=doc["_id"], **{f: doc.get(f) for f in fields})
 
 
 def create_app(
@@ -52,6 +64,7 @@ def create_app(
     analytics=None,
     clock: Callable[[], dt.datetime] = utcnow,
     configure_logging: bool = True,
+    channels: Optional[dict] = None,
 ) -> FastAPI:
     """Monta a API. Os parâmetros servem aos testes; em produção tudo vem das variáveis de ambiente."""
     settings = settings or load_settings()
@@ -79,14 +92,23 @@ def create_app(
         if not an.configured:
             logger.warning("MAPTILER_SERVICE_TOKEN não definido: as verificações vão falhar",
                            extra={"event": "token_missing"})
-        monitor = Monitor(settings, st, an, clock)
-        app.state.storage, app.state.monitor = st, monitor
-        logger.info("monitor iniciado", extra={"event": "startup", "version": __version__,
-                                               "storage": type(st).__name__, "commit": settings.build_commit})
+        chans = channels if channels is not None else {
+            "email": ResendEmail(settings.resend_api_key, settings.alert_email_from, settings.alert_email_to),
+            "whatsapp": CallMeBotWhatsApp(settings.alert_whatsapp_phone, settings.callmebot_api_key),
+        }
+        alerts = AlertService(settings, st, chans, clock)
+        monitor = Monitor(settings, st, an, clock, alerts)
+        app.state.storage, app.state.monitor, app.state.alerts = st, monitor, alerts
+        app.state.last_test_alert = None
+        logger.info("monitor iniciado", extra={
+            "event": "startup", "version": __version__, "storage": type(st).__name__, "commit": settings.build_commit,
+            "channels": sorted(name for name, ch in chans.items() if ch.configured)})
         try:
             yield
         finally:
             await monitor.aclose()
+            if channels is None:
+                await alerts.aclose()
             if analytics is None:
                 await an.aclose()
             if storage is None:
@@ -176,5 +198,24 @@ def create_app(
     async def history(request: Request, days: int = Query(30, ge=1, le=400, description="Quantos dias"),
                       _who: Principal = Depends(require("client", "admin"))):
         return HistoryResponse(days=days, daily=await request.app.state.monitor.history(days))
+
+    @app.get("/v1/alerts", response_model=AlertsResponse, tags=["alertas"], summary="Histórico de avisos",
+             description="Cada faixa atingida, por métrica e canal, com o resultado do envio. Só administrador.")
+    async def alerts_history(request: Request, limit: int = Query(50, ge=1, le=500),
+                             _who: Principal = Depends(require("admin"))):
+        docs = await request.app.state.storage.list_notifications(limit)
+        return AlertsResponse(alerts=[alert_record(d) for d in docs])
+
+    @app.post("/v1/alerts/test", response_model=TestAlertResponse, tags=["alertas"],
+              summary="Manda um aviso de teste em cada canal configurado",
+              description="Para conferir e-mail e WhatsApp depois de configurar. No máximo um por minuto.",
+              responses={429: {"description": "Teste recente demais"}})
+    async def alerts_test(request: Request, _who: Principal = Depends(require("admin"))):
+        now, last = clock(), request.app.state.last_test_alert
+        if last is not None and (now - last).total_seconds() < TEST_ALERT_INTERVAL_S:
+            wait = int(TEST_ALERT_INTERVAL_S - (now - last).total_seconds()) + 1
+            raise HTTPException(429, "um teste foi enviado há pouco; espere um minuto", headers={"Retry-After": str(wait)})
+        request.app.state.last_test_alert = now
+        return TestAlertResponse(results=await request.app.state.alerts.send_test())
 
     return app
