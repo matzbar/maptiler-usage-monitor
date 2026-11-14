@@ -13,6 +13,16 @@ updates:
       python-menores:
         update-types: [minor, patch]
 
+  - package-ecosystem: npm # ferramentas de desenvolvimento do painel (lint e formatação)
+    directory: /
+    schedule: { interval: weekly, day: monday, time: "06:00", timezone: America/Sao_Paulo }
+    cooldown: { default-days: 14 }
+    open-pull-requests-limit: 5
+    commit-message: { prefix: "deps(painel)" }
+    groups:
+      painel-menores:
+        update-types: [minor, patch]
+
   - package-ecosystem: docker # imagem base do Dockerfile
     directory: /
     schedule: { interval: weekly, day: monday, time: "06:00", timezone: America/Sao_Paulo }

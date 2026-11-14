@@ -1,0 +1,22 @@
+{
+  "name": "maptiler-usage-monitor-panel",
+  "private": true,
+  "description": "Ferramentas de desenvolvimento do painel (lint, formatação e testes). O painel em si não tem dependências.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "lint": "eslint . && stylelint \"app/panel/static/css/**/*.css\" && prettier --check .",
+    "format": "prettier --write . && stylelint --fix \"app/panel/static/css/**/*.css\"",
+    "test": "node --test \"tests/panel/*.test.mjs\""
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "eslint": "10.13.0",
+    "globals": "17.13.0",
+    "prettier": "3.9.10",
+    "stylelint": "17.16.0",
+    "stylelint-config-standard": "40.0.0"
+  }
+}

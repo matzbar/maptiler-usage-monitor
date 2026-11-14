@@ -10,6 +10,7 @@ from typing import Callable, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
@@ -32,6 +33,7 @@ from app.storage import MemoryStorage, MongoStorage, Storage
 
 TEST_ALERT_INTERVAL_S = 60  # no máximo um teste de aviso por minuto
 PANEL_DIR = Path(__file__).parent / "panel"
+PANEL_STATIC_PREFIX = "/panel/static/"
 
 logger = logging.getLogger("monitor.api")
 
@@ -41,7 +43,7 @@ Acompanha o consumo de uma conta [MapTiler](https://www.maptiler.com/cloud/) pel
 cobrança, porcentagem da cota, faixa de consumo, projeção e histórico.
 
 **Autenticação:** `Authorization: Bearer <token>`. Projetos clientes usam a própria chave (criada com
-`python -m scripts.projetos criar`); o agendador usa o `CHECK_TOKEN`; o administrador, o `ADMIN_TOKEN`.
+`python -m scripts.clients create`); o agendador usa o `CHECK_TOKEN`; o administrador, o `ADMIN_TOKEN`.
 
 A credencial de serviço do MapTiler fica só neste servidor e nunca aparece nas respostas.
 """
@@ -119,13 +121,18 @@ def create_app(
 
     app = FastAPI(title="MapTiler Usage Monitor", version=__version__, description=DESCRIPTION,
                   lifespan=lifespan, redoc_url=None)
+    # Comprime respostas a partir de 1 KB (JS, CSS e JSON do painel). As respostas não refletem dados enviados
+    # por terceiros junto com segredos, então não há risco do tipo BREACH.
+    app.add_middleware(GZipMiddleware, minimum_size=1024)
     limiter = RateLimiter(settings.rate_limit_per_min)
 
     @app.middleware("http")
     async def protect(request: Request, call_next):
         path = request.url.path
         response = None
-        if path != "/health":  # o health check do Render e do Docker não conta no limite
+        # Fora do limite: o health check (Render e Docker) e os arquivos estáticos do painel (sem dados nem segredos;
+        # cada abertura da página baixa uns 15 deles e, contando, duas aberturas seguidas já estourariam o limite).
+        if path != "/health" and not path.startswith(PANEL_STATIC_PREFIX):
             ip = client_ip(request.headers, request.client.host if request.client else None,
                            settings.trusted_proxy_hops, settings.client_ip_header)
             wait = limiter.hit(ip)
@@ -160,13 +167,13 @@ def create_app(
 
     @app.get("/", include_in_schema=False)
     async def root():
-        return {"name": "maptiler-usage-monitor", "version": __version__, "docs": "/docs", "painel": "/painel"}
+        return {"name": "maptiler-usage-monitor", "version": __version__, "docs": "/docs", "panel": "/panel"}
 
     # Painel do administrador: página estática (sem dados). Os dados vêm das rotas /v1, com o ADMIN_TOKEN que a
     # pessoa digita na página e que fica só na aba do navegador (sessionStorage).
-    app.mount("/painel/static", StaticFiles(directory=PANEL_DIR / "static"), name="painel-static")
+    app.mount(PANEL_STATIC_PREFIX.rstrip("/"), StaticFiles(directory=PANEL_DIR / "static"), name="panel-static")
 
-    @app.get("/painel", include_in_schema=False)
+    @app.get("/panel", include_in_schema=False)
     async def panel():
         return FileResponse(PANEL_DIR / "index.html", media_type="text/html; charset=utf-8")
 

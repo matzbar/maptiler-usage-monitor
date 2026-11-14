@@ -7,7 +7,7 @@ from pymongo.errors import ServerSelectionTimeoutError
 from app.main import create_app
 from app.maptiler import AnalyticsError
 from app.storage import MemoryStorage
-from scripts.projetos import create_client
+from scripts.clients import create_client
 from tests.helpers import ADMIN, CHECK, KEY_A, KEY_A_ID, SERVICE_TOKEN, Clock, FakeAnalytics, at, make_settings
 
 
@@ -140,6 +140,9 @@ def test_rate_limit_per_ip():
         codes = [http.get("/v1/usage", headers=bearer(ADMIN)).status_code for _ in range(4)]
         assert codes == [200, 200, 200, 429]
         assert http.get("/health").status_code == 200  # o health check não entra no limite
+        # os arquivos estáticos do painel também não: sem eles a página abriria em branco
+        assert {http.get("/panel/static/js/main.js").status_code for _ in range(5)} == {200}
+        assert http.get("/panel").status_code == 429  # a página e os dados continuam no limite
 
 
 class BrokenStorage(MemoryStorage):
@@ -198,20 +201,31 @@ def test_alert_test_route_and_its_limit(alert_env):
 
 def test_panel_is_static_and_locked_down(env):
     http = env[0]
-    r = http.get("/painel")
+    r = http.get("/panel")
     assert r.status_code == 200 and r.headers["content-type"].startswith("text/html")
     csp = r.headers["content-security-policy"]
     assert "script-src 'self'" in csp and "connect-src 'self'" in csp and "unsafe-inline" not in csp
     assert r.headers["x-frame-options"] == "DENY"
-    assert "<script" in r.text and "src=\"/painel/static/painel.js\"" in r.text
+    assert '<script type="module" src="/panel/static/js/main.js">' in r.text
     # a página não traz dado nenhum: tudo vem das rotas /v1 com o token
     assert "2186" not in r.text and ADMIN not in r.text
-    for asset in ("painel.js", "painel.css"):
-        a = http.get(f"/painel/static/{asset}")
+    assert "font-src 'self'" in csp and "require-trusted-types-for 'script'" in csp
+    assert r.headers["cache-control"] == "no-cache"  # confere com o servidor antes de reaproveitar
+    assert "camera=()" in r.headers["permissions-policy"]
+    for asset, content_type in (("js/main.js", "javascript"), ("js/api.js", "javascript"),
+                                ("css/panel.css", "text/css"), ("fonts/ubuntu-latin-500-normal.woff2", "font/woff2")):
+        a = http.get(f"/panel/static/{asset}")
         assert a.status_code == 200, asset
+        assert content_type in a.headers["content-type"], asset
         assert a.headers["content-security-policy"] == csp
-    assert http.get("/painel/static/../../main.py").status_code == 404
-    assert http.get("/").json()["painel"] == "/painel"
+        assert a.headers["cache-control"] == "no-cache", asset
+    assert http.get("/panel/static/../../main.py").status_code == 404
+    # fontes sem uso não são mais servidas
+    assert http.get("/panel/static/fonts/ubuntu-latin-400-normal.woff2").status_code == 404
+    # JS e CSS saem comprimidos; o JSON da API também, a partir de 1 KB
+    big = http.get("/panel/static/js/sections.js", headers={"Accept-Encoding": "gzip"})
+    assert big.headers["content-encoding"] == "gzip"
+    assert http.get("/").json()["panel"] == "/panel"
 
 
 def test_checks_history_is_admin_only_and_newest_first(env):
