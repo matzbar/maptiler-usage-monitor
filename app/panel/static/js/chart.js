@@ -39,12 +39,10 @@ function buildSvg(model, usage) {
       ),
     );
   }
-  svg.append(
-    horizontalLine(model, model.warningLine.y, "chart__warning"),
-    lineLabel(model, model.warningLine.y, "80%"),
-    horizontalLine(model, model.quota.y, "chart__quota"),
-    lineLabel(model, model.quota.y, "cota"),
-  );
+  // Native append (not dom.js): it would turn a null into the text "null", so the optional label is added apart.
+  svg.append(horizontalLine(model, model.warningLine.y, "chart__warning"));
+  if (model.warningLine.labeled) svg.append(lineLabel(model, model.warningLine.y, "80%"));
+  svg.append(horizontalLine(model, model.quota.y, "chart__quota"), lineLabel(model, model.quota.y, "cota"));
   for (const tick of model.dateLabels) {
     svg.append(
       s(

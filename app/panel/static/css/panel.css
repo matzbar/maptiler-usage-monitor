@@ -615,9 +615,6 @@ details[open] > .card__summary {
 
 /* ---------- notice and callout ---------- */
 
-.notice-region:empty {
-  display: contents;
-} /* takes no space when empty, but stays a live region */
 .notice,
 .callout {
   border-radius: var(--radius-card);

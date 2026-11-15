@@ -72,3 +72,11 @@ test("narrow screens get a shorter chart and no projection once the period is ov
 test("no data in the period → no model", () => {
   assert.equal(buildChartModel(usage, [{ date: "2026-10-01", requests: 5 }], 700), null);
 });
+
+test("80% label is dropped only when it would touch the quota label", () => {
+  const early = { ...usage, projection: { requests: 900000, days_in_period: 30 } }; // day 1 at 30%: 900%
+  const daily = [{ date: "2026-11-03", requests: 30000 }];
+  assert.equal(buildChartModel(early, daily, 360).warningLine.labeled, false);
+  assert.equal(buildChartModel(early, daily, 900).warningLine.labeled, false);
+  assert.equal(buildChartModel(usage, daily, 360).warningLine.labeled, true);
+});

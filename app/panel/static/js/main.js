@@ -61,7 +61,7 @@ const ui = Object.fromEntries(
 const state = {
   signedIn: false,
   session: 0, // incremented on every sign-in and sign-out
-  loading: null, // in-flight load (a Promise), so concurrent loads share it
+  loading: null, // {session, promise} of the load in flight, so concurrent loads of a session share it
   usage: null, // last UsageResponse shown
   daily: null, // last daily history shown
 };
@@ -88,6 +88,7 @@ function showLogin(reason = "") {
   state.session += 1; // anything still running for the old session is discarded when it finishes
   state.usage = null;
   state.daily = null;
+  showNotice(""); // a message from this session must not show up in the next one
   tokenStore.clear();
   ui.app.hidden = true;
   ui.login.hidden = false;
@@ -173,17 +174,23 @@ async function fetchAndRender() {
   }
 }
 
-/** Loads everything; calls made while a load is running reuse it. Never rejects. */
+/**
+ * Loads everything. Never rejects. A call made while a load of the *same* session is running reuses it;
+ * a load left over from an earlier session is never reused (its result is discarded), so signing in
+ * again while it is still in flight starts a fresh load instead of waiting on one that will be thrown away.
+ */
 function load() {
-  state.loading ??= withBusy(ui["refresh-button"], fetchAndRender)
+  if (state.loading?.session === state.session) return state.loading.promise;
+  const promise = withBusy(ui["refresh-button"], fetchAndRender)
     .catch((error) => {
       reportUnexpected(error);
       return false;
     })
     .finally(() => {
-      state.loading = null;
+      if (state.loading?.promise === promise) state.loading = null;
     });
-  return state.loading;
+  state.loading = { session: state.session, promise };
+  return promise;
 }
 
 // ---------- actions ----------

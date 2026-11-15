@@ -65,6 +65,27 @@ def test_signing_out_during_a_load_does_not_reopen_the_panel(page, monitor_url):
     expect(page.locator("#app")).to_be_hidden()
 
 
+def test_signing_in_again_during_an_old_load_opens_the_panel(page, monitor_url):
+    """Segunda auditoria R1/R2: entrar de novo enquanto a carga da sessão anterior ainda está em andamento
+    abre o painel (antes não acontecia nada) e não traz o aviso da sessão anterior."""
+    sign_in(page, monitor_url)
+    expect(page.locator("#app")).to_be_visible()
+    page.click("#check-button")  # deixa um aviso na tela
+    expect(page.locator("#notice")).not_to_be_empty()
+    cdp = page.context.new_cdp_session(page)
+    cdp.send("Network.enable")
+    cdp.send("Network.emulateNetworkConditions",
+             {"offline": False, "latency": 1200, "downloadThroughput": -1, "uploadThroughput": -1})
+    page.click("#refresh-button")
+    page.wait_for_timeout(150)
+    page.click("#logout-button")
+    page.fill("#token-input", ADMIN)
+    page.click("#login-submit")
+    expect(page.locator("#app")).to_be_visible(timeout=10_000)
+    expect(page.locator("#meters .meter")).to_have_count(2)
+    expect(page.locator("#notice")).to_be_empty()
+
+
 def test_unexpected_response_shows_a_message(page, monitor_url):
     """Auditoria M1: dado fora do formato vira aviso na tela, não falha silenciosa."""
     sign_in(page, monitor_url)
@@ -104,8 +125,10 @@ def test_accessibility_basics(page, monitor_url):
     # medidores com texto para leitor de tela; a caixa de erro não usa role=alert
     expect(page.locator(".meter__bar").first).to_have_attribute("aria-valuetext", re.compile(r"78,6% da cota"))
     assert page.locator("#status [role=alert]").count() == 0
-    # um <main> visível por vez; estrutura de títulos sem pular nível no conteúdo
+    # um <main> visível por vez; o primeiro título do painel é o h1 (o menu não usa títulos)
     assert page.locator("main:visible").count() == 1
+    first_heading = page.evaluate("document.querySelector('#app h1, #app h2, #app h3').tagName")
+    assert first_heading == "H1"
     expect(page.locator("#section-daily summary h2")).to_have_text("Consumo dia a dia")
 
 

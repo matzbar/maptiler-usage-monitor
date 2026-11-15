@@ -2,6 +2,7 @@
 
 const MS_PER_DAY = 86_400_000;
 const HEADROOM = 1.08; // empty space above the highest line, so it doesn't touch the top edge
+const MIN_LABEL_GAP = 12; // px between the "cota" and "80%" labels (11px text); closer than this, 80% is unlabeled
 
 export const MARGIN = Object.freeze({ left: 64, right: 16, top: 12, bottom: 28 });
 
@@ -71,7 +72,12 @@ export function buildChartModel(usage, daily, width) {
     ticks,
     dateLabels,
     quota: { value: quota, y: y(quota) },
-    warningLine: { value: quota * 0.8, y: y(quota * 0.8) },
+    warningLine: {
+      value: quota * 0.8,
+      y: y(quota * 0.8),
+      // early in a period with heavy use, the projection stretches the axis and the two lines nearly touch
+      labeled: y(quota * 0.8) - y(quota) >= MIN_LABEL_GAP,
+    },
     points: points.map((p) => ({ ...p, x: x(p.dayIndex), y: y(p.total) })),
     projection:
       last.dayIndex < lastIndex
