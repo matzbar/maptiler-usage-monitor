@@ -17,3 +17,5 @@ eslint.config.js
 .prettierrc.json
 .prettierignore
 .stylelintrc.json
+render.yaml
+DEPLOY.md

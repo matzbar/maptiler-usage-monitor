@@ -1,0 +1,50 @@
+# Blueprint do Render: cria o monitor como serviço web Docker no plano gratuito.
+# Passo a passo completo em DEPLOY.md. No Render: New > Blueprint > este repositório.
+#
+# Segredos (sync: false) são pedidos UMA vez, na criação do Blueprint. Para trocar um depois, use a aba
+# Environment do serviço. CHECK_TOKEN e ADMIN_TOKEN são gerados pelo Render (44 caracteres aleatórios).
+services:
+  - type: web
+    name: maptiler-usage-monitor # vira o endereço: https://maptiler-usage-monitor.onrender.com (se livre)
+    runtime: docker
+    plan: free # sem este campo, o Render cria num plano pago
+    # Não há região na América do Sul; virginia (leste dos EUA) é a mais próxima do Atlas em São Paulo.
+    # Não dá para mudar depois de criado.
+    region: virginia
+    branch: main
+    healthCheckPath: /health
+    # Publica sozinho a cada merge na main, mas só depois que o CI passar.
+    autoDeployTrigger: checksPass
+    # Mudanças só em testes, documentação ou no painel de desenvolvimento não republicam o serviço.
+    buildFilter:
+      paths:
+        - app/**
+        - scripts/**
+        - Dockerfile
+        - requirements.txt
+    envVars:
+      # --- Obrigatórias ---
+      - key: MAPTILER_SERVICE_TOKEN # cloud.maptiler.com/account/credentials (DEPLOY.md, parte 2)
+        sync: false
+      - key: MONGO_URL # usuário próprio no cluster do Atlas (DEPLOY.md, parte 1)
+        sync: false
+      - key: DB_NAME
+        value: maptiler_monitor
+      - key: CHECK_TOKEN # o mesmo valor vai para o segredo MONITOR_CHECK_TOKEN do GitHub
+        generateValue: true
+      - key: ADMIN_TOKEN # o que se digita no painel
+        generateValue: true
+      # --- Alertas (DEPLOY.md, parte 3) ---
+      - key: RESEND_API_KEY
+        sync: false
+      - key: ALERT_EMAIL_TO
+        sync: false
+      - key: ALERT_EMAIL_FROM
+        value: MapTiler Monitor <onboarding@resend.dev>
+      - key: ALERT_WHATSAPP_PHONE
+        sync: false
+      - key: CALLMEBOT_API_KEY
+        sync: false
+      - key: ALERT_TIMEZONE
+        value: America/Sao_Paulo
+      # Os demais valores (cotas, faixas, prazos) usam os padrões de .env.example.
