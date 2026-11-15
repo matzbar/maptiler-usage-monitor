@@ -1,0 +1,56 @@
+# Rotinas do monitor: verificação do consumo (com os alertas) 4 vezes por dia e relatório diário às 9h.
+#
+# Precisa de dois segredos do repositório (Settings > Secrets and variables > Actions):
+#   MONITOR_URL          endereço público do monitor, com https (ex.: https://maptiler-monitor.onrender.com)
+#   MONITOR_CHECK_TOKEN  o mesmo valor de CHECK_TOKEN configurado no monitor
+# Sem eles, cada execução só avisa "agendamento desligado" e termina sem erro.
+#
+# Se uma rotina falhar, o job fica vermelho e o GitHub manda e-mail para quem alterou este arquivo por último:
+# é o aviso de "monitor fora do ar". O próprio monitor também manda e-mail depois de 3 verificações seguidas
+# com falha (ALERT_FAILURE_STREAK).
+name: Scheduler
+
+on:
+  schedule:
+    # Horário do GitHub é UTC; Brasília = UTC-3 o ano todo. Minuto :17 foge da fila do horário cheio.
+    - cron: "17 0,6,18 * * *" # 21h17, 3h17 e 15h17 em Brasília: verificação
+    - cron: "17 12 * * *" # 9h17 em Brasília: verificação + relatório diário
+  workflow_dispatch: # rodar na mão: aba Actions > Scheduler > Run workflow
+    inputs:
+      tasks:
+        description: "O que rodar"
+        type: choice
+        options: ["check", "report", "check report"]
+        default: "check"
+
+permissions:
+  contents: read
+
+# Nunca duas execuções ao mesmo tempo (o monitor recusaria a segunda); a que chegar espera a anterior.
+concurrency:
+  group: scheduler
+  cancel-in-progress: false
+
+jobs:
+  routines:
+    name: Rotinas do monitor
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      # Só o httpx, na mesma versão do projeto: o script não precisa do resto.
+      - run: pip install "$(grep '^httpx==' requirements.txt)"
+      - name: Chama o monitor
+        env:
+          MONITOR_URL: ${{ secrets.MONITOR_URL }}
+          MONITOR_CHECK_TOKEN: ${{ secrets.MONITOR_CHECK_TOKEN }}
+          # Execução manual: o que foi escolhido. Agendada: relatório só na das 9h17.
+          TASKS: >-
+            ${{ github.event_name == 'workflow_dispatch' && inputs.tasks
+            || (github.event.schedule == '17 12 * * *' && 'check report' || 'check') }}
+        run: |
+          read -ra task_list <<< "$TASKS" # "check report" → duas tarefas
+          python -m scripts.scheduler "${task_list[@]}"

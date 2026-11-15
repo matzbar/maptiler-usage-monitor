@@ -8,8 +8,8 @@ Outros projetos consultam o consumo por esta API, cada um com a própria chave, 
 serviço do MapTiler, que dá acesso total à conta e fica só aqui.
 
 > **Situação:** em desenvolvimento. Pronto: consulta ao MapTiler, cálculo, histórico, leitura pela API, alertas
-> por e-mail (Resend) e WhatsApp (CallMeBot), relatório diário por e-mail e painel do administrador. Próxima etapa:
-> agendamento pelo GitHub Actions (verificação a cada 6 horas e relatório às 9h).
+> por e-mail (Resend) e WhatsApp (CallMeBot), relatório diário por e-mail, painel do administrador e agendamento
+> pelo GitHub Actions (desligado até o monitor ser publicado). Próxima etapa: publicação.
 
 ## Como funciona
 
@@ -85,6 +85,32 @@ Código em `app/panel/`, em módulos JavaScript sem build nem dependências:
 Navegadores suportados: Chrome/Edge 103+, Firefox 100+ e Safari 16+. Contraste de cores no nível AA da WCAG, nos
 temas claro e escuro. Mudanças no painel: `npm install` uma vez, depois `npm run format` e `npm run lint`
 (ESLint, Stylelint e Prettier; o `package.json` só tem ferramentas de desenvolvimento).
+
+## Agendamento
+
+O workflow [`scheduler.yml`](.github/workflows/scheduler.yml) chama o monitor pelo GitHub Actions:
+
+| Horário (Brasília) | Rotina |
+| --- | --- |
+| 3h17, 15h17 e 21h17 | Verificação do consumo (e, com ela, os alertas) |
+| 9h17 | Verificação e relatório diário por e-mail |
+
+Para ligar, crie dois segredos em *Settings > Secrets and variables > Actions*: `MONITOR_URL` (endereço público do
+monitor, com `https://`) e `MONITOR_CHECK_TOKEN` (o mesmo valor de `CHECK_TOKEN` no monitor). Sem eles, cada
+execução só avisa "agendamento desligado" e termina sem erro. Para testar na hora: aba *Actions > Scheduler >
+Run workflow*.
+
+- Antes das rotinas, o script ([`scripts/scheduler.py`](scripts/scheduler.py)) chama `GET /health` até o monitor
+  responder (até cerca de 1,5 minuto): hospedagens gratuitas desligam o serviço parado. As rotinas são chamadas uma
+  vez só: uma verificação que falhou também conta para o intervalo mínimo, e repeti-la só daria "muito cedo".
+- "Verificação recente", "verificação em andamento" e "relatório já enviado" não são falhas. Falha do MapTiler,
+  token recusado ou monitor fora do ar deixam o job vermelho, e o GitHub manda e-mail para quem alterou o workflow
+  por último: é o aviso de que o monitor parou. O monitor também avisa por e-mail depois de 3 verificações seguidas
+  com falha.
+- O token só vai por `https://` (ou para `localhost`) e nunca aparece no log.
+- Em repositório público, o GitHub pausa os agendamentos depois de 60 dias sem atividade no repositório e avisa
+  por e-mail; para religar, basta um clique em *Enable workflow* na aba Actions. O horário também não é exato:
+  em momentos de fila, uma execução pode atrasar alguns minutos.
 
 ## Rodar localmente
 
@@ -211,7 +237,7 @@ teste da imagem Docker.
 
 - A credencial de serviço fica só na variável `MAPTILER_SERVICE_TOKEN`. Ela nunca aparece em respostas nem em
   logs, e o código só faz GET na rota de consumo do MapTiler, sem seguir redirecionamentos.
-- Cada papel tem o seu token: projeto (só lê o consumo), agendador (só dispara verificações) e administrador.
+- Cada papel tem o seu token: projeto (só lê o consumo), agendador (só dispara verificações e o relatório diário) e administrador.
   As comparações são feitas em tempo constante.
 - Há limite de requisições por IP. As respostas levam cabeçalhos de segurança (CSP, HSTS em HTTPS,
   `X-Frame-Options`) e `Cache-Control: no-store` nos dados.
