@@ -89,7 +89,7 @@ STATUS_HELP = ("recorded: só registrado (aparece no painel); sending: enviando;
 
 
 class NotificationSummary(BaseModel):
-    kind: Literal["usage", "monitor_down", "test"]
+    kind: Literal["usage", "monitor_down", "test", "report"]
     metric: Optional[Literal["requests", "sessions"]] = None
     threshold: Optional[int] = Field(None, description="Faixa, em % da cota")
     channel: Literal["panel", "email", "whatsapp"]
@@ -124,6 +124,17 @@ class AlertRecord(NotificationSummary):
 
 class AlertsResponse(BaseModel):
     alerts: list[AlertRecord] = Field(description="Do mais recente para o mais antigo")
+
+
+class ChecksResponse(BaseModel):
+    checks: list[CheckResponse] = Field(description="Da mais recente para a mais antiga")
+
+
+class ReportResponse(BaseModel):
+    status: Literal["sent", "failed", "already_sent", "not_configured", "sending"] = Field(
+        description="already_sent: o relatório deste dia já foi enviado; not_configured: e-mail não configurado")
+    date: dt.date = Field(description="Dia do relatório (no fuso ALERT_TIMEZONE)")
+    error: Optional[str] = None
 
 
 class TestResult(BaseModel):

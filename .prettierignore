@@ -1,0 +1,13 @@
+# Prettier cuida só do painel e das configurações dele; o resto do repositório tem outras convenções.
+*
+!app/
+!app/panel/
+!app/panel/**
+!tests/
+!tests/panel/
+!tests/panel/**
+!package.json
+!eslint.config.js
+!.stylelintrc.json
+!.prettierrc.json
+app/panel/static/fonts/

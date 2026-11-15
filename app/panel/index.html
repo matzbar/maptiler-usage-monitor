@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="referrer" content="no-referrer" />
+    <title>Monitor MapTiler</title>
+    <link rel="icon" href="data:," />
+    <link
+      rel="preload"
+      href="/panel/static/fonts/open-sans-latin-400-normal.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      href="/panel/static/fonts/ubuntu-latin-500-normal.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link rel="stylesheet" href="/panel/static/css/panel.css" />
+    <!-- All modules up front: otherwise each import is only discovered after its parent arrives. -->
+    <link rel="modulepreload" href="/panel/static/js/api.js" />
+    <link rel="modulepreload" href="/panel/static/js/chart-model.js" />
+    <link rel="modulepreload" href="/panel/static/js/chart.js" />
+    <link rel="modulepreload" href="/panel/static/js/dom.js" />
+    <link rel="modulepreload" href="/panel/static/js/format.js" />
+    <link rel="modulepreload" href="/panel/static/js/labels.js" />
+    <link rel="modulepreload" href="/panel/static/js/messages.js" />
+    <link rel="modulepreload" href="/panel/static/js/sections.js" />
+    <link rel="modulepreload" href="/panel/static/js/token-store.js" />
+    <script type="module" src="/panel/static/js/main.js"></script>
+  </head>
+  <body>
+    <noscript><p class="noscript">O painel precisa de JavaScript ativado.</p></noscript>
+
+    <svg class="sprite" aria-hidden="true" focusable="false">
+      <symbol id="logo" viewBox="0 0 32 32">
+        <path d="M4 22a12 12 0 0 1 24 0" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" />
+        <path d="M16 22l6-8" stroke="currentColor" stroke-width="3" stroke-linecap="round" />
+        <circle cx="16" cy="22" r="2.5" fill="currentColor" />
+      </symbol>
+    </svg>
+
+    <!-- Sign-in screen. Only one <main> is visible at a time (the other has `hidden`). -->
+    <main id="login" class="login" hidden>
+      <div class="login__card">
+        <div class="brand brand--large">
+          <svg class="brand__mark" aria-hidden="true" focusable="false"><use href="#logo" /></svg>
+          <span class="brand__name">Monitor de consumo</span>
+        </div>
+        <h1 class="login__title">Entrar</h1>
+        <p class="login__text">
+          Cole o <code>ADMIN_TOKEN</code>. Ele fica só nesta aba do navegador e é apagado quando ela é fechada.
+        </p>
+        <form id="login-form" class="login__form">
+          <label for="token-input" class="field-label">Token de administrador</label>
+          <!-- minlength mirrors MIN_TOKEN_LENGTH in app/config.py (the server refuses shorter tokens). -->
+          <input
+            id="token-input"
+            class="field"
+            name="token"
+            type="password"
+            autocomplete="current-password"
+            spellcheck="false"
+            required
+            minlength="32"
+          />
+          <button id="login-submit" type="submit" class="button button--primary button--block">Entrar</button>
+        </form>
+        <p id="login-error" class="login__error" role="alert"></p>
+      </div>
+    </main>
+
+    <!-- Panel -->
+    <div id="app" class="layout" hidden>
+      <a class="skip-link" href="#content">Pular para o conteúdo</a>
+
+      <aside class="sidebar">
+        <div class="brand">
+          <svg class="brand__mark" aria-hidden="true" focusable="false"><use href="#logo" /></svg>
+          <span class="brand__name">Monitor de consumo</span>
+        </div>
+        <nav class="sidebar__nav" aria-label="Seções">
+          <p id="nav-account" class="sidebar__heading">Conta MapTiler</p>
+          <ul class="sidebar__list" aria-labelledby="nav-account">
+            <li><a class="sidebar__link" href="#section-status">Situação</a></li>
+            <li><a class="sidebar__link" href="#section-usage">Consumo</a></li>
+            <li><a class="sidebar__link" href="#section-chart">Evolução</a></li>
+            <li><a class="sidebar__link" href="#section-breakdown">Chaves e serviços</a></li>
+          </ul>
+          <p id="nav-monitor" class="sidebar__heading">Monitor</p>
+          <ul class="sidebar__list" aria-labelledby="nav-monitor">
+            <li><a class="sidebar__link" href="#section-alerts">Avisos</a></li>
+            <li><a class="sidebar__link" href="#section-checks">Verificações</a></li>
+            <li><a class="sidebar__link" href="#section-daily">Dia a dia</a></li>
+          </ul>
+        </nav>
+        <button id="logout-button" type="button" class="button button--ghost sidebar__logout">Sair</button>
+      </aside>
+
+      <div class="content">
+        <header class="topbar">
+          <div>
+            <h1 class="topbar__title">Visão geral</h1>
+            <p id="updated-at" class="topbar__subtitle"></p>
+          </div>
+          <div class="topbar__actions">
+            <button id="refresh-button" type="button" class="button button--secondary">Atualizar</button>
+            <button id="test-button" type="button" class="button button--secondary">Testar avisos</button>
+            <button id="check-button" type="button" class="button button--primary">Verificar agora</button>
+          </div>
+        </header>
+
+        <main id="content" class="content__body" tabindex="-1">
+          <!-- Live region: always in the page (empty when there is nothing to say), so changes are announced. -->
+          <div id="notice" class="notice-region" role="status" aria-live="polite"></div>
+
+          <section id="section-status" class="card" aria-labelledby="title-status">
+            <h2 id="title-status" class="card__title">Situação</h2>
+            <div id="status" class="status"></div>
+          </section>
+
+          <section id="section-usage" class="card" aria-labelledby="title-usage">
+            <h2 id="title-usage" class="card__title">Consumo do período</h2>
+            <div id="meters" class="meters"></div>
+          </section>
+
+          <section id="section-chart" class="card" aria-labelledby="title-chart">
+            <h2 id="title-chart" class="card__title">Requests acumulados no período</h2>
+            <div id="chart" class="chart"></div>
+          </section>
+
+          <div id="section-breakdown" class="grid-2">
+            <section class="card" aria-labelledby="title-keys">
+              <h2 id="title-keys" class="card__title">Por chave do MapTiler</h2>
+              <div id="keys" data-labelledby="title-keys"></div>
+            </section>
+            <section class="card" aria-labelledby="title-services">
+              <h2 id="title-services" class="card__title">Por serviço</h2>
+              <div id="services" data-labelledby="title-services"></div>
+            </section>
+          </div>
+
+          <section id="section-alerts" class="card" aria-labelledby="title-alerts">
+            <h2 id="title-alerts" class="card__title">Avisos</h2>
+            <div id="alerts" data-labelledby="title-alerts"></div>
+          </section>
+
+          <section id="section-checks" class="card" aria-labelledby="title-checks">
+            <h2 id="title-checks" class="card__title">Verificações</h2>
+            <div id="checks" data-labelledby="title-checks"></div>
+          </section>
+
+          <details id="section-daily" class="card">
+            <summary class="card__summary"><h2 id="title-daily" class="card__title">Consumo dia a dia</h2></summary>
+            <div id="daily" data-labelledby="title-daily"></div>
+          </details>
+        </main>
+      </div>
+    </div>
+  </body>
+</html>

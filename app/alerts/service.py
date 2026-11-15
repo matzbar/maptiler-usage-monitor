@@ -13,6 +13,7 @@ Status de um aviso: recorded (só registro, para o painel), sending, sent, faile
 import datetime as dt
 import logging
 from typing import Callable
+from zoneinfo import ZoneInfo
 
 from app.alerts.channels import ChannelError
 from app.alerts.messages import build_message
@@ -166,6 +167,33 @@ class AlertService:
         same_period = await self.storage.notifications_for_period(doc["period"]["since"])
         return any(other["metric"] == doc["metric"] and other["channel"] == doc["channel"]
                    and other["threshold"] > doc["threshold"] for other in same_period)
+
+    # ---------- relatório diário ----------
+
+    async def send_daily_report(self, usage: dict, checks: list[dict]) -> dict:
+        """Relatório diário por e-mail, no máximo um por dia (data no fuso ALERT_TIMEZONE).
+
+        usage: o consumo como a API devolve (Monitor.usage); checks: verificações recentes, da mais nova à mais antiga.
+        """
+        now = self.clock()
+        day = now.astimezone(ZoneInfo(self.settings.alert_timezone)).date().isoformat()
+        if not self._configured("email"):
+            return {"status": "not_configured", "date": day, "error": None}
+        since = now - dt.timedelta(hours=24)
+        recent = [c for c in checks if c["checked_at"] >= since]
+        sent = [n for n in await self.storage.list_notifications(200)
+                if n["created_at"] >= since and n["kind"] in ("usage", "monitor_down") and n["status"] == "sent"]
+        snapshot = {k: usage.get(k) for k in ("status", "checked_at", "period", "requests", "sessions", "level",
+                                              "projection", "last_error")}
+        doc = self._new(now, "email", "notify", kind="report", _id=f"report:{day}:email", period=usage.get("period"),
+                        metric=None, threshold=None, report_date=day, usage=snapshot,
+                        checks_24h={"ok": sum(c["status"] == "ok" for c in recent),
+                                    "failed": sum(c["status"] == "failed" for c in recent)},
+                        alerts_24h=[self.summary(n) for n in sorted(sent, key=lambda n: n["created_at"])])
+        if not await self.storage.claim_notification(doc):
+            return {"status": "already_sent", "date": day, "error": None}
+        await self._deliver(doc)
+        return {"status": doc["status"], "date": day, "error": doc["last_error"]}
 
     # ---------- teste ----------
 

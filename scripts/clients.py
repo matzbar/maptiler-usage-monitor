@@ -1,13 +1,13 @@
 """Gerencia os projetos clientes: quem pode ler o consumo pela API.
 
 Uso (com MONGO_URL e DB_NAME definidos):
-    python -m scripts.projetos criar HydrantRouteSP --chave-maptiler <chave pública do mapa>
-    python -m scripts.projetos listar
-    python -m scripts.projetos desativar HydrantRouteSP
-    python -m scripts.projetos reativar HydrantRouteSP
+    python -m scripts.clients create HydrantRouteSP --maptiler-key <chave pública do mapa>
+    python -m scripts.clients list
+    python -m scripts.clients deactivate HydrantRouteSP
+    python -m scripts.clients reactivate HydrantRouteSP
 
 A chave do projeto aparece uma única vez, na criação: o banco guarda só o hash dela.
---chave-maptiler (pode repetir) diz quais chaves do MapTiler o projeto vê no detalhamento por chave.
+--maptiler-key (pode repetir) diz quais chaves do MapTiler o projeto vê no detalhamento por chave.
 """
 import argparse
 import asyncio
@@ -40,15 +40,15 @@ async def create_client(storage: Storage, name: str, maptiler_keys: list[str], n
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="python -m scripts.projetos", description=__doc__.split("\n")[0])
+    parser = argparse.ArgumentParser(prog="python -m scripts.clients", description=__doc__.split("\n")[0])
     sub = parser.add_subparsers(dest="command", required=True)
-    create = sub.add_parser("criar", help="cria um projeto e mostra a chave dele uma única vez")
-    create.add_argument("nome")
-    create.add_argument("--chave-maptiler", action="append", default=[], dest="maptiler_keys",
+    create = sub.add_parser("create", help="cria um projeto e mostra a chave dele uma única vez")
+    create.add_argument("name")
+    create.add_argument("--maptiler-key", action="append", default=[], dest="maptiler_keys",
                         help="chave do MapTiler usada pelo projeto (pode repetir)")
-    sub.add_parser("listar", help="lista os projetos (sem as chaves)")
-    for command in ("desativar", "reativar"):
-        sub.add_parser(command, help=f"{command} um projeto").add_argument("nome")
+    sub.add_parser("list", help="lista os projetos (sem as chaves)")
+    sub.add_parser("deactivate", help="desativa um projeto").add_argument("name")
+    sub.add_parser("reactivate", help="reativa um projeto").add_argument("name")
     return parser
 
 
@@ -63,17 +63,17 @@ async def main(argv: Optional[list[str]] = None, storage: Optional[Storage] = No
         storage = MongoStorage(settings.mongo_url, settings.db_name, settings.retention_days)
         await storage.connect()
     try:
-        if args.command == "criar":
+        if args.command == "create":
             try:
-                key = await create_client(storage, args.nome, args.maptiler_keys, dt.datetime.now(dt.timezone.utc))
+                key = await create_client(storage, args.name, args.maptiler_keys, dt.datetime.now(dt.timezone.utc))
             except (ValueError, DuplicateClient) as exc:
-                message = f"já existe um projeto chamado {args.nome!r}" if isinstance(exc, DuplicateClient) else exc
+                message = f"já existe um projeto chamado {args.name!r}" if isinstance(exc, DuplicateClient) else exc
                 print(f"Erro: {message}", file=sys.stderr)
                 return 1
-            print(f"Projeto {args.nome!r} criado.")
+            print(f"Projeto {args.name!r} criado.")
             print("Chave do projeto (guarde agora num lugar seguro; ela não aparece de novo):")
             print(key)
-        elif args.command == "listar":
+        elif args.command == "list":
             clients = await storage.list_clients()
             if not clients:
                 print("Nenhum projeto.")
@@ -82,11 +82,12 @@ async def main(argv: Optional[list[str]] = None, storage: Optional[Storage] = No
                 keys = ", ".join(k[:4] + "…" for k in c.get("maptiler_keys", [])) or "nenhuma"
                 print(f"- {c['name']} ({state}) · chave {c['key_prefix']}… · chaves do MapTiler: {keys}")
         else:
-            found = await storage.set_client_active(args.nome, args.command == "reativar")
+            reactivate = args.command == "reactivate"
+            found = await storage.set_client_active(args.name, reactivate)
             if not found:
-                print(f"Erro: projeto {args.nome!r} não encontrado", file=sys.stderr)
+                print(f"Erro: projeto {args.name!r} não encontrado", file=sys.stderr)
                 return 1
-            print(f"Projeto {args.nome!r} {'reativado' if args.command == 'reativar' else 'desativado'}.")
+            print(f"Projeto {args.name!r} {'reativado' if reactivate else 'desativado'}.")
         return 0
     finally:
         if own_storage:

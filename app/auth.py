@@ -2,7 +2,7 @@
 
   - admin (ADMIN_TOKEN): tudo;
   - scheduler (CHECK_TOKEN): só dispara verificações;
-  - client (chave do projeto, criada por scripts/projetos.py): só lê o consumo, e só vê as próprias chaves
+  - client (chave do projeto, criada por scripts/clients.py): só lê o consumo, e só vê as próprias chaves
     do MapTiler. O banco guarda apenas o hash SHA-256 da chave.
 """
 import hashlib
