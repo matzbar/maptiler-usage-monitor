@@ -9,7 +9,8 @@ serviço do MapTiler, que dá acesso total à conta e fica só aqui.
 
 > **Situação:** em desenvolvimento. Pronto: consulta ao MapTiler, cálculo, histórico, leitura pela API, alertas
 > por e-mail (Resend) e WhatsApp (CallMeBot), relatório diário por e-mail, painel do administrador e agendamento
-> pelo GitHub Actions (desligado até o monitor ser publicado). Próxima etapa: publicação.
+> pelo GitHub Actions (desligado até o monitor ser publicado). Próxima etapa: publicação no Render, com o passo
+> a passo em [`DEPLOY.md`](DEPLOY.md).
 
 ## Como funciona
 
@@ -111,6 +112,12 @@ Run workflow*.
 - Em repositório público, o GitHub pausa os agendamentos depois de 60 dias sem atividade no repositório e avisa
   por e-mail; para religar, basta um clique em *Enable workflow* na aba Actions. O horário também não é exato:
   em momentos de fila, uma execução pode atrasar alguns minutos.
+
+## Publicação
+
+No Render (plano gratuito) com o banco no MongoDB Atlas: [`DEPLOY.md`](DEPLOY.md) tem o passo a passo, e o
+[`render.yaml`](render.yaml) traz a configuração do serviço (Docker, `/health`, deploy só depois do CI). Os
+segredos são preenchidos no Render, nunca no repositório.
 
 ## Rodar localmente
 
