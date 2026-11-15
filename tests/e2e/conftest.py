@@ -97,3 +97,11 @@ def sign_in(pg, url: str, token: str = ADMIN) -> None:
     pg.goto(f"{url}/panel")
     pg.fill("#token-input", token)
     pg.click("#login-submit")
+
+
+def slow_network(pg, latency_ms: int) -> None:
+    """Atrasa cada resposta em `latency_ms` (protocolo do Chrome), para reproduzir ações durante uma carga."""
+    cdp = pg.context.new_cdp_session(pg)
+    cdp.send("Network.enable")
+    cdp.send("Network.emulateNetworkConditions",
+             {"offline": False, "latency": latency_ms, "downloadThroughput": -1, "uploadThroughput": -1})

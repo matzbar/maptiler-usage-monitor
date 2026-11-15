@@ -280,3 +280,14 @@ def test_daily_report_without_data_or_email():
                      channels=no_email)
     with TestClient(app) as http:
         assert http.post("/v1/reports/daily", headers=bearer(CHECK)).json()["status"] == "not_configured"
+
+
+def test_every_panel_module_is_preloaded(env):
+    """Sem modulepreload, cada import só é descoberto quando o módulo pai chega (carregamento em cascata)."""
+    from app.main import PANEL_DIR
+
+    html = env[0].get("/panel").text
+    modules = sorted(p.name for p in (PANEL_DIR / "static" / "js").glob("*.js") if p.name != "main.js")
+    assert modules, "nenhum módulo encontrado"
+    missing = [m for m in modules if f'rel="modulepreload" href="/panel/static/js/{m}"' not in html]
+    assert missing == []

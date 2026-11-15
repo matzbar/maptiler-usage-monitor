@@ -3,7 +3,7 @@ import re
 
 from playwright.sync_api import expect
 
-from tests.e2e.conftest import sign_in
+from tests.e2e.conftest import sign_in, slow_network
 from tests.helpers import ADMIN, CHECK
 
 
@@ -15,6 +15,12 @@ def test_admin_sees_the_panel_without_errors(page, monitor_url):
     expect(page.locator("#meters")).to_contain_text("78.600")
     expect(page.locator("#chart svg")).to_be_visible()
     expect(page.locator("#keys table")).to_have_attribute("aria-labelledby", "title-keys")
+    # colunas de contagem (requests, sessions) nas tabelas de chaves, serviços e dia a dia
+    expect(page.locator("#keys tbody tr").first).to_contain_text("70.740")
+    expect(page.locator("#keys tbody tr").first).to_contain_text("420")
+    expect(page.locator("#services tbody tr").first).to_contain_text("78.600")
+    expect(page.locator("#daily tbody tr")).to_have_count(12)
+    expect(page.locator("#daily tbody tr").last).to_contain_text("420")
     expect(page.locator("#status")).not_to_contain_text("null")
     # fontes do próprio monitor carregadas (a CSP não deixa vir de fora)
     loaded = page.evaluate("document.fonts.ready.then(() => [...document.fonts].filter(f => f.status === 'loaded')"
@@ -53,10 +59,7 @@ def test_signing_out_during_a_load_does_not_reopen_the_panel(page, monitor_url):
     """Auditoria A1: a resposta que chega depois de sair não pode reabrir o painel com os dados."""
     sign_in(page, monitor_url)
     expect(page.locator("#app")).to_be_visible()
-    cdp = page.context.new_cdp_session(page)
-    cdp.send("Network.enable")
-    cdp.send("Network.emulateNetworkConditions",
-             {"offline": False, "latency": 1200, "downloadThroughput": -1, "uploadThroughput": -1})
+    slow_network(page, latency_ms=1200)
     page.click("#refresh-button")
     page.wait_for_timeout(150)
     page.click("#logout-button")
@@ -72,10 +75,7 @@ def test_signing_in_again_during_an_old_load_opens_the_panel(page, monitor_url):
     expect(page.locator("#app")).to_be_visible()
     page.click("#check-button")  # deixa um aviso na tela
     expect(page.locator("#notice")).not_to_be_empty()
-    cdp = page.context.new_cdp_session(page)
-    cdp.send("Network.enable")
-    cdp.send("Network.emulateNetworkConditions",
-             {"offline": False, "latency": 1200, "downloadThroughput": -1, "uploadThroughput": -1})
+    slow_network(page, latency_ms=1200)
     page.click("#refresh-button")
     page.wait_for_timeout(150)
     page.click("#logout-button")

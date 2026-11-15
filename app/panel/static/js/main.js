@@ -9,8 +9,8 @@
 import { ApiError, createApiClient } from "./api.js";
 import { renderUsageChart } from "./chart.js";
 import { fill, h } from "./dom.js";
-import { formatDateTime, formatPercent } from "./format.js";
-import { CHANNELS, ERROR_KINDS, TEST_STATUSES, textFor } from "./labels.js";
+import { formatDateTime } from "./format.js";
+import { describeCheckError, describeCheckSuccess, describeTestError, describeTestResults } from "./messages.js";
 import {
   renderAlerts,
   renderChecks,
@@ -214,50 +214,17 @@ async function runAction(button, action, describeError) {
   }
 }
 
-function describeCheckError(error) {
-  const body = error.body;
-  if (error.isRateLimited && body?.retry_after_s != null) {
-    const minutes = Math.ceil(body.retry_after_s / 60);
-    return { text: `A última verificação é recente. Dá para verificar de novo em ${minutes} min.`, tone: "neutral" };
-  }
-  if (error.status === 502 && body?.error) {
-    return {
-      text:
-        `A consulta ao MapTiler falhou (${textFor(ERROR_KINDS, body.error.kind)}): ${body.error.message}. ` +
-        "A falha ficou registrada.",
-      tone: "critical",
-    };
-  }
-  return { text: `Não foi possível verificar: ${error.message}.`, tone: "critical" };
-}
-
 async function runCheck() {
   showNotice("Consultando o MapTiler…");
   await runAction(
     ui["check-button"],
     async () => {
-      const check = await api.runCheck();
-      showNotice(
-        `Verificação concluída: requests em ${formatPercent(check.requests.percent)}, ` +
-          `sessions em ${formatPercent(check.sessions.percent)}.`,
-        "ok",
-      );
+      const { text, tone } = describeCheckSuccess(await api.runCheck());
+      showNotice(text, tone);
     },
     describeCheckError,
   );
   if (state.signedIn) await load(); // only replaces the notice if reloading fails
-}
-
-function describeTestResults(results) {
-  const parts = results.map(
-    (r) => `${textFor(CHANNELS, r.channel)}: ${textFor(TEST_STATUSES, r.status)}${r.error ? ` (${r.error})` : ""}`,
-  );
-  const whatsappSent = results.some((r) => r.channel === "whatsapp" && r.status === "sent");
-  const anyFailed = results.some((r) => r.status === "failed");
-  return {
-    text: `Teste de aviso — ${parts.join("; ")}.${whatsappSent ? " O WhatsApp pode levar até 20 min para chegar." : ""}`,
-    tone: anyFailed ? "critical" : "ok",
-  };
 }
 
 async function sendTestAlert() {
@@ -270,7 +237,7 @@ async function sendTestAlert() {
       const { text, tone } = describeTestResults(results);
       showNotice(text, tone);
     },
-    (error) => ({ text: `Não foi possível enviar o teste: ${error.message}.`, tone: "critical" }),
+    describeTestError,
   );
 }
 

@@ -75,6 +75,7 @@ Código em `app/panel/`, em módulos JavaScript sem build nem dependências:
 | Arquivo | Responsabilidade |
 | --- | --- |
 | `js/main.js` | Entrada, carregamento, botões e estado da tela |
+| `js/messages.js` | Mensagens mostradas depois de "Verificar agora" e "Testar avisos" |
 | `js/api.js` | Cliente das rotas `/v1` (token, tempo limite, erros) |
 | `js/sections.js` | Uma função de desenho por seção |
 | `js/chart-model.js`, `js/chart.js` | Cálculo e desenho do gráfico |

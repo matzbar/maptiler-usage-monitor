@@ -18,6 +18,12 @@ const FEW_DAYS = 5; // below this, the projection still swings a lot
 
 const byRequestsDesc = (a, b) => b.requests - a.requests;
 
+/** Requests and sessions as counts: the last two columns of the keys, services and daily tables. */
+const COUNT_COLUMNS = Object.freeze([
+  { title: "Requests", numeric: true, value: (row) => formatInteger(row.requests) },
+  { title: "Sessions", numeric: true, value: (row) => formatInteger(row.sessions) },
+]);
+
 function tableOptions(container, emptyText) {
   return { emptyText, labelledBy: container.dataset.labelledby ?? null };
 }
@@ -178,11 +184,7 @@ export function renderKeys(container, usage) {
   fill(
     container,
     dataTable(
-      [
-        { title: "Chave", value: keyName },
-        { title: "Requests", numeric: true, value: (k) => formatInteger(k.requests) },
-        { title: "Sessions", numeric: true, value: (k) => formatInteger(k.sessions) },
-      ],
+      [{ title: "Chave", value: keyName }, ...COUNT_COLUMNS],
       [...usage.keys].sort(byRequestsDesc),
       tableOptions(container, "Nenhuma chave com consumo neste período."),
     ),
@@ -193,11 +195,7 @@ export function renderServices(container, usage) {
   fill(
     container,
     dataTable(
-      [
-        { title: "Serviço", value: (svc) => svc.label || svc.service },
-        { title: "Requests", numeric: true, value: (svc) => formatInteger(svc.requests) },
-        { title: "Sessions", numeric: true, value: (svc) => formatInteger(svc.sessions) },
-      ],
+      [{ title: "Serviço", value: (svc) => svc.label || svc.service }, ...COUNT_COLUMNS],
       [...usage.services].sort(byRequestsDesc),
       tableOptions(container, "Nenhum serviço com consumo neste período."),
     ),
@@ -282,11 +280,7 @@ export function renderDaily(container, daily) {
   fill(
     container,
     dataTable(
-      [
-        { title: "Dia", value: (d) => formatDate(d.date) },
-        { title: "Requests", numeric: true, value: (d) => formatInteger(d.requests) },
-        { title: "Sessions", numeric: true, value: (d) => formatInteger(d.sessions) },
-      ],
+      [{ title: "Dia", value: (d) => formatDate(d.date) }, ...COUNT_COLUMNS],
       newestFirst,
       tableOptions(container, "Sem histórico dia a dia."),
     ),
