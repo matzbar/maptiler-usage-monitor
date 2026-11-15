@@ -10,7 +10,7 @@ updates:
     open-pull-requests-limit: 5
     commit-message: { prefix: "deps" }
     groups:
-      python-menores:
+      python-minor:
         update-types: [minor, patch]
 
   - package-ecosystem: npm # ferramentas de desenvolvimento do painel (lint e formatação)
@@ -18,9 +18,9 @@ updates:
     schedule: { interval: weekly, day: monday, time: "06:00", timezone: America/Sao_Paulo }
     cooldown: { default-days: 14 }
     open-pull-requests-limit: 5
-    commit-message: { prefix: "deps(painel)" }
+    commit-message: { prefix: "deps(panel)" }
     groups:
-      painel-menores:
+      panel-minor:
         update-types: [minor, patch]
 
   - package-ecosystem: docker # imagem base do Dockerfile
@@ -35,5 +35,5 @@ updates:
     cooldown: { default-days: 14 }
     commit-message: { prefix: "deps(ci)" }
     groups:
-      acoes-do-ci:
+      ci-actions:
         patterns: ["*"]
