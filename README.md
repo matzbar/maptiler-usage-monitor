@@ -95,6 +95,7 @@ O workflow [`scheduler.yml`](.github/workflows/scheduler.yml) chama o monitor pe
 | --- | --- |
 | 3h17, 15h17 e 21h17 | Verificação do consumo (e, com ela, os alertas) |
 | 9h17 | Verificação e relatório diário por e-mail |
+| 4h47, 10h47, 16h47 e 22h47 | Reserva da rotina 1h30 antes, só se nenhuma execução deu certo nas últimas 2 horas (o GitHub às vezes atrasa ou descarta execuções agendadas) |
 
 Para ligar, crie dois segredos em *Settings > Secrets and variables > Actions*: `MONITOR_URL` (endereço público do
 monitor, com `https://`) e `MONITOR_CHECK_TOKEN` (o mesmo valor de `CHECK_TOKEN` no monitor). Sem eles, cada

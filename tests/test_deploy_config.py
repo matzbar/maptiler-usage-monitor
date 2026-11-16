@@ -73,3 +73,29 @@ def test_no_secret_is_written_in_the_file(service):
 def test_tokens_are_generated_by_render(service):
     generated = {var["key"] for var in service["envVars"] if var.get("generateValue")}
     assert {"CHECK_TOKEN", "ADMIN_TOKEN"} <= generated  # 44 caracteres: passa no mínimo de 32
+
+
+# ----------------------------- Agendamento (scheduler.yml) -----------------------------
+def scheduler_workflow() -> dict:
+    return yaml.safe_load((ROOT / ".github/workflows/scheduler.yml").read_text(encoding="utf-8"))
+
+
+def test_every_routine_has_a_backup_and_the_report_too():
+    workflow = scheduler_workflow()
+    triggers = workflow.get("on") or workflow[True]  # o YAML 1.1 lê a chave "on" como True
+    crons = [entry["cron"] for entry in triggers["schedule"]]
+    primary = [c for c in crons if c.startswith("17 ")]
+    backup = [c for c in crons if c.startswith("47 ")]
+    hours = lambda cs: sorted(int(h) for c in cs for h in c.split()[1].split(","))  # noqa: E731
+    assert hours(primary) == [0, 6, 12, 18]
+    assert hours(backup) == [h + 1 for h in hours(primary)]  # 1h30 depois de cada uma
+
+    steps = workflow["jobs"]["routines"]["steps"]
+    tasks = next(s for s in steps if s.get("name") == "Chama o monitor")["env"]["TASKS"]
+    assert "'17 12 * * *'" in tasks and "'47 13 * * *'" in tasks  # relatório na principal e na reserva
+    assert "17 12 * * *" in crons and "47 13 * * *" in crons
+    # a reserva só segue se nada deu certo; todos os passos seguintes respeitam essa decisão
+    first = steps[0]
+    assert first["id"] == "backup" and "startsWith(github.event.schedule, '47 ')" in first["if"]
+    assert all(s.get("if") == "steps.backup.outputs.skip != 'true'" for s in steps[1:])
+    assert workflow["permissions"] == {"contents": "read", "actions": "read"}
