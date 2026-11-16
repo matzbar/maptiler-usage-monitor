@@ -318,13 +318,52 @@ a {
   max-width: 100%;
 }
 
+/* Select with its own arrow: the browser's sits flush against the right border. The arrow is drawn by the
+   wrapper (a select can't have ::after), in the theme's muted color, and clicks pass through it. */
+.select {
+  position: relative;
+  display: inline-flex;
+  max-width: 100%;
+}
+
+.select select {
+  appearance: none;
+  padding-right: 40px;
+  min-width: 190px;
+  cursor: pointer;
+}
+
+.select::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 16px;
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid var(--color-muted);
+  border-bottom: 2px solid var(--color-muted);
+  transform: translateY(-70%) rotate(45deg);
+  pointer-events: none;
+}
+
+.select select:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
 /* ---------- project picker ---------- */
 
 .project-picker {
   display: flex;
-  align-items: center;
-  gap: var(--space-2);
+  flex-direction: column;
+  gap: 4px;
   min-width: 0;
+}
+
+.project-picker__label {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--color-muted);
 }
 
 .scope-tag {
@@ -548,6 +587,7 @@ a {
 .topbar__actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: flex-end; /* the buttons line up with the select, below its label */
   gap: var(--space-2);
 }
 
