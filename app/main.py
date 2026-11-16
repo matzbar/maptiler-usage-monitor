@@ -26,8 +26,9 @@ from app.logs import setup_logging
 from app.maptiler import AnalyticsClient
 from app.monitoring.check import Monitor, utcnow
 from app.ratelimit import RateLimiter, client_ip
-from app.schemas import (AlertRecord, AlertsResponse, CheckResponse, ChecksResponse, HealthResponse,
-                         HistoryResponse, ReportResponse, TestAlertResponse, TooSoonResponse, UsageResponse)
+from app.monitoring.engine import mask_key
+from app.schemas import (AlertRecord, AlertsResponse, CheckResponse, ChecksResponse, ClientsResponse,
+                         ClientSummary, HealthResponse, HistoryResponse, ReportResponse, TestAlertResponse, TooSoonResponse, UsageResponse)
 from app.security import headers_for
 from app.storage import MemoryStorage, MongoStorage, Storage
 
@@ -207,9 +208,30 @@ def create_app(
 
     @app.get("/v1/usage", response_model=UsageResponse, tags=["consumo"],
              summary="Consumo do período de cobrança atual")
-    async def usage(request: Request, who: Principal = Depends(require("client", "admin"))):
-        allowed = None if who.role == "admin" else who.maptiler_keys
-        return UsageResponse(**await request.app.state.monitor.usage(allowed))
+    async def usage(request: Request,
+                    client: Optional[str] = Query(None, max_length=64,
+                                                  description="Só administrador: mostra as chaves deste projeto"),
+                    who: Principal = Depends(require("client", "admin"))):
+        if who.role != "admin":
+            if client is not None and client != who.name:
+                raise HTTPException(403, "só o administrador escolhe o projeto")
+            allowed, name = who.maptiler_keys, who.name
+        elif client is None:
+            allowed, name = None, None
+        else:
+            found = next((c for c in await request.app.state.storage.list_clients() if c["name"] == client), None)
+            if found is None:
+                raise HTTPException(404, "projeto não encontrado")
+            allowed, name = frozenset(found.get("maptiler_keys") or ()), found["name"]
+        return UsageResponse(**await request.app.state.monitor.usage(allowed, name))
+
+    @app.get("/v1/clients", response_model=ClientsResponse, tags=["projetos"],
+             summary="Projetos clientes", description="Sem as chaves dos projetos. Só administrador.")
+    async def clients(request: Request, _who: Principal = Depends(require("admin"))):
+        return ClientsResponse(clients=[
+            ClientSummary(name=c["name"], active=c.get("active", True),
+                          maptiler_keys=[mask_key(k) for k in c.get("maptiler_keys") or ()])
+            for c in await request.app.state.storage.list_clients()])
 
     @app.get("/v1/usage/history", response_model=HistoryResponse, tags=["consumo"],
              summary="Consumo dia a dia")

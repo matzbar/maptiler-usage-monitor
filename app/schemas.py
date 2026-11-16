@@ -36,6 +36,17 @@ class KeyUsage(BaseModel):
     sessions: int
 
 
+class ProjectMetric(BaseModel):
+    used: int = Field(description="Consumo das chaves do projeto no período")
+    percent_of_quota: float = Field(description="Quanto isso representa da cota da conta, truncado em 1 casa decimal")
+
+
+class ProjectUsage(BaseModel):
+    name: str
+    requests: ProjectMetric
+    sessions: ProjectMetric
+
+
 class ServiceUsage(BaseModel):
     service: str = Field(description="Identificador do serviço no MapTiler")
     label: Optional[str] = Field(description="Nome do serviço")
@@ -61,6 +72,9 @@ class UsageResponse(BaseModel):
     level: Optional[Level] = Field(None, description=LEVEL_HELP)
     projection: Optional[Projection] = None
     keys: list[KeyUsage] = Field([], description="Consumo das chaves do MapTiler deste projeto")
+    project: Optional[ProjectUsage] = Field(
+        None, description="Total das chaves do projeto e a parte da cota da conta que ele usa. Vem para projetos "
+                          "clientes e para o administrador com ?client=; os demais números são da conta inteira")
     services: list[ServiceUsage] = Field([], description="Consumo da conta por serviço do MapTiler")
     last_error: Optional[LastError] = Field(None, description="Falha mais recente, se houve depois do dado mostrado")
 
@@ -157,3 +171,13 @@ class HealthResponse(BaseModel):
     status: Literal["ok"]
     version: str
     commit: Optional[str] = None
+
+
+class ClientSummary(BaseModel):
+    name: str
+    active: bool
+    maptiler_keys: list[str] = Field(description="Chaves do MapTiler do projeto, mascaradas")
+
+
+class ClientsResponse(BaseModel):
+    clients: list[ClientSummary]

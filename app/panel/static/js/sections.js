@@ -173,6 +173,49 @@ export function renderMeters(container, usage) {
   );
 }
 
+/**
+ * The chosen project's share of the account quota, above the account meters. Hidden for the whole account.
+ * The meters below stay the account's: the quota, the alerts and client cut-offs belong to the account.
+ */
+export function renderProjectShare(container, usage) {
+  const project = usage.status === "unavailable" ? null : usage.project;
+  container.hidden = !project;
+  if (!project) {
+    container.replaceChildren();
+    return;
+  }
+  const share = (title, metric) =>
+    h(
+      "div",
+      { class: "project-share__item" },
+      h("dt", { text: title }),
+      h(
+        "dd",
+        {},
+        h("strong", { text: formatInteger(metric.used) }),
+        ` · ${formatPercent(metric.percent_of_quota)} da cota da conta`,
+      ),
+    );
+  fill(
+    container,
+    h(
+      "div",
+      { class: "project-share" },
+      h("h3", { class: "project-share__title", text: project.name }),
+      h(
+        "dl",
+        { class: "project-share__facts" },
+        share("Requests", project.requests),
+        share("Sessions", project.sessions),
+      ),
+      h("p", {
+        class: "hint",
+        text: "Abaixo, o total da conta inteira: é ele que tem cota, dispara os avisos e o corte dos projetos.",
+      }),
+    ),
+  );
+}
+
 // ---------- breakdowns ----------
 
 function keyName(key) {

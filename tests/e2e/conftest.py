@@ -7,6 +7,7 @@ Com o Chrome já instalado, sem baixar o Chromium: E2E_BROWSER_CHANNEL=chrome py
 
 Sem o Playwright instalado, estes testes são pulados (o CI principal não precisa dele).
 """
+import asyncio
 import datetime as dt
 import os
 import socket
@@ -21,7 +22,8 @@ import uvicorn  # noqa: E402
 
 from app.main import create_app  # noqa: E402
 from app.storage import MemoryStorage  # noqa: E402
-from tests.helpers import ADMIN, CHECK, FakeAnalytics, account, fake_channels, make_settings  # noqa: E402
+from scripts.clients import create_client  # noqa: E402
+from tests.helpers import ADMIN, CHECK, KEY_A_ID, FakeAnalytics, account, fake_channels, make_settings  # noqa: E402
 
 PERIOD_DAY = 12  # hoje é o 12º dia do período simulado
 
@@ -43,7 +45,20 @@ def free_port() -> int:
 @pytest.fixture(scope="session")
 def monitor_url():
     """Sobe o monitor numa porta livre, numa thread, e faz a primeira verificação."""
-    app = create_app(make_settings(rate_limit_per_min=10_000), MemoryStorage(), FakeAnalytics(simulated_account()),
+    storage = MemoryStorage()
+
+    async def add_projects():
+        # Um projeto com a chave A (a de maior consumo) e um desativado, sem chaves, para o seletor de projeto.
+        now = dt.datetime.now(dt.timezone.utc)
+        await create_client(storage, "HydrantRouteSP", [KEY_A_ID], now)
+        await create_client(storage, "Antigo", [], now)
+        await storage.set_client_active("Antigo", False)
+
+    # Numa thread própria: o Playwright já mantém um event loop nesta.
+    setup = threading.Thread(target=lambda: asyncio.run(add_projects()))
+    setup.start()
+    setup.join()
+    app = create_app(make_settings(rate_limit_per_min=10_000), storage, FakeAnalytics(simulated_account()),
                      configure_logging=False, channels=fake_channels(whatsapp=False))
     port = free_port()
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))

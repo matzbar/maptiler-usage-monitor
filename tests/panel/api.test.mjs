@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { ApiError, createApiClient } from "../../app/panel/static/js/api.js";
-import { createTokenStore } from "../../app/panel/static/js/token-store.js";
+import { createProjectStore, createTokenStore } from "../../app/panel/static/js/token-store.js";
 
 function fakeFetch(status, body) {
   const calls = [];
@@ -30,6 +30,18 @@ test("query parameters are encoded", async () => {
   await api.checks("1&x=2");
   assert.equal(calls[0].url, "/v1/usage/history?days=62");
   assert.equal(calls[1].url, "/v1/checks?limit=1%26x%3D2");
+});
+
+test("usage takes an optional project, encoded; clients has its own route", async () => {
+  const { impl, calls } = fakeFetch(200, {});
+  const api = createApiClient({ getToken: () => "t", fetchImpl: impl });
+  await api.usage("");
+  await api.usage("Meu projeto & cia");
+  await api.clients();
+  assert.deepEqual(
+    calls.map((c) => c.url),
+    ["/v1/usage", "/v1/usage?client=Meu%20projeto%20%26%20cia", "/v1/clients"],
+  );
 });
 
 test("HTTP errors become ApiError with the API's detail", async () => {
@@ -107,5 +119,36 @@ test("token store uses the given storage and survives a broken one", () => {
   fallback.set("xyz");
   assert.equal(fallback.get(), "xyz");
   fallback.clear();
+  assert.equal(fallback.get(), "");
+});
+
+test("project store remembers the choice, forgets the whole account and survives a broken storage", () => {
+  const map = new Map();
+  const storage = {
+    getItem: (k) => map.get(k) ?? null,
+    setItem: (k, v) => map.set(k, v),
+    removeItem: (k) => map.delete(k),
+  };
+  const store = createProjectStore(storage);
+  assert.equal(store.get(), "");
+  store.set("HydrantRouteSP");
+  assert.equal(store.get(), "HydrantRouteSP");
+  store.set("");
+  assert.equal(store.get(), "");
+  assert.equal(map.size, 0);
+
+  const broken = {
+    getItem() {
+      throw new Error("blocked");
+    },
+    setItem() {
+      throw new Error("blocked");
+    },
+    removeItem() {
+      throw new Error("blocked");
+    },
+  };
+  const fallback = createProjectStore(broken);
+  fallback.set("HydrantRouteSP");
   assert.equal(fallback.get(), "");
 });

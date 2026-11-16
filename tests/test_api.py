@@ -8,7 +8,7 @@ from app.main import create_app
 from app.maptiler import AnalyticsError
 from app.storage import MemoryStorage
 from scripts.clients import create_client
-from tests.helpers import ADMIN, CHECK, KEY_A, KEY_A_ID, SERVICE_TOKEN, Clock, FakeAnalytics, at, make_settings
+from tests.helpers import ADMIN, CHECK, KEY_A, KEY_A_ID, KEY_B, SERVICE_TOKEN, Clock, FakeAnalytics, at, make_settings
 
 
 def bearer(token):
@@ -88,6 +88,51 @@ def test_usage_for_client_and_admin(env):
     everything = http.get("/v1/usage", headers=bearer(ADMIN)).json()
     assert len(everything["keys"]) == 2
     assert KEY_A not in mine.text + str(everything)
+
+
+def test_usage_includes_the_project_share_of_the_account_quota(env):
+    http, _, _, _, client_key = env
+    http.post("/v1/checks", headers=bearer(CHECK))
+    everything = http.get("/v1/usage", headers=bearer(ADMIN)).json()
+    assert everything["project"] is None
+    key_a = next(k for k in everything["keys"] if k["key"] == "AbCd…St")
+    mine = http.get("/v1/usage", headers=bearer(client_key)).json()
+    chosen = http.get("/v1/usage", params={"client": "HydrantRouteSP"}, headers=bearer(ADMIN)).json()
+    for data in (mine, chosen):
+        assert data["project"]["name"] == "HydrantRouteSP"
+        assert data["project"]["requests"]["used"] == key_a["requests"]
+        assert data["project"]["requests"]["percent_of_quota"] == (key_a["requests"] * 1000 // 100000) / 10
+        assert data["project"]["sessions"]["used"] == key_a["sessions"]
+        assert [k["key"] for k in data["keys"]] == ["AbCd…St"]
+        # o resto continua sendo da conta inteira: é ela que tem cota e dispara os avisos
+        assert data["requests"] == everything["requests"] and data["services"] == everything["services"]
+
+
+def test_only_admin_chooses_the_project(env):
+    http, storage, _, clock, client_key = env
+    http.post("/v1/checks", headers=bearer(CHECK))
+    assert http.get("/v1/usage", params={"client": "Outro"}, headers=bearer(client_key)).status_code == 403
+    assert http.get("/v1/usage", params={"client": "HydrantRouteSP"}, headers=bearer(client_key)).status_code == 200
+    assert http.get("/v1/usage", params={"client": "Inexistente"}, headers=bearer(ADMIN)).status_code == 404
+    asyncio.run(create_client(storage, "Sem chaves", [], clock()))
+    empty = http.get("/v1/usage", params={"client": "Sem chaves"}, headers=bearer(ADMIN)).json()
+    assert empty["keys"] == [] and empty["project"]["requests"] == {"used": 0, "percent_of_quota": 0.0}
+
+
+def test_clients_list_is_admin_only_and_hides_keys(env):
+    http, storage, _, clock, client_key = env
+    asyncio.run(create_client(storage, "Outro projeto", [KEY_A, KEY_B], clock()))
+    asyncio.run(storage.set_client_active("Outro projeto", False))
+    r = http.get("/v1/clients", headers=bearer(ADMIN))
+    assert r.status_code == 200
+    assert r.json() == {"clients": [
+        {"name": "HydrantRouteSP", "active": True, "maptiler_keys": ["1111…11"]},
+        {"name": "Outro projeto", "active": False, "maptiler_keys": ["AbCd…St", "ZyXw…Hg"]},
+    ]}
+    assert KEY_A not in r.text and client_key not in r.text
+    assert http.get("/v1/clients", headers=bearer(client_key)).status_code == 403
+    assert http.get("/v1/clients", headers=bearer(CHECK)).status_code == 403
+    assert http.get("/v1/clients").status_code == 401
 
 
 def test_deactivated_client_loses_access(env):
