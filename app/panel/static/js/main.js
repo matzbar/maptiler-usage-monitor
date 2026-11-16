@@ -138,7 +138,7 @@ async function withBusy(button, action) {
 
 /** Project picker options: the whole account, then each project (inactive ones say so). */
 function renderProjectPicker(clients) {
-  const options = [h("option", { value: "", text: "Conta inteira" })];
+  const options = [h("option", { value: "", text: "Todos os projetos" })];
   for (const client of clients) {
     const label = client.active ? client.name : `${client.name} (desativado)`;
     options.push(h("option", { value: client.name, text: label }));
