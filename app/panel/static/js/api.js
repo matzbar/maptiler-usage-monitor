@@ -55,7 +55,9 @@ export function createApiClient({
   }
 
   return {
-    usage: () => request("GET", "/v1/usage"),
+    /** @param {string} [client] project name (admin only); omitted = the whole account */
+    usage: (client) => request("GET", client ? `/v1/usage?client=${encodeURIComponent(client)}` : "/v1/usage"),
+    clients: () => request("GET", "/v1/clients"),
     history: (days) => request("GET", `/v1/usage/history?days=${encodeURIComponent(days)}`),
     alerts: (limit) => request("GET", `/v1/alerts?limit=${encodeURIComponent(limit)}`),
     checks: (limit) => request("GET", `/v1/checks?limit=${encodeURIComponent(limit)}`),

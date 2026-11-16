@@ -14,7 +14,7 @@ from typing import Callable, Optional
 
 from app.config import Settings
 from app.maptiler import AnalyticsError
-from app.monitoring.engine import build_snapshot, mask_key
+from app.monitoring.engine import build_snapshot, mask_key, percent
 from app.storage import Storage
 
 logger = logging.getLogger("monitor.check")
@@ -106,8 +106,11 @@ class Monitor:
 
     # ---------- leitura ----------
 
-    async def usage(self, allowed_keys: Optional[frozenset[str]]) -> dict:
-        """Consumo guardado mais recente. allowed_keys: chaves do MapTiler que o projeto pode ver (None = todas)."""
+    async def usage(self, allowed_keys: Optional[frozenset[str]], project_name: Optional[str] = None) -> dict:
+        """Consumo guardado mais recente. allowed_keys: chaves do MapTiler que o projeto pode ver (None = todas).
+
+        Com project_name, inclui o total das chaves do projeto e a parte da cota da conta que ele representa.
+        """
         now = self.clock()
         last_ok = await self.storage.last_ok_check()
         last = await self.storage.last_check()
@@ -124,11 +127,16 @@ class Monitor:
             return {"status": "unavailable", "checked_at": None, "last_error": last_error}
 
         age_s = (now - last_ok["checked_at"]).total_seconds()
-        keys = [
-            {"key": mask_key(k["key_label"]), "name": k["name"], "requests": k["requests"], "sessions": k["sessions"]}
-            for k in last_ok["by_key"]
-            if allowed_keys is None or k["key_id"] in allowed_keys or k["key_label"] in allowed_keys
-        ]
+        visible = [k for k in last_ok["by_key"]
+                   if allowed_keys is None or k["key_id"] in allowed_keys or k["key_label"] in allowed_keys]
+        keys = [{"key": mask_key(k["key_label"]), "name": k["name"], "requests": k["requests"],
+                 "sessions": k["sessions"]} for k in visible]
+        project = None
+        if project_name is not None:
+            project = {"name": project_name}
+            for metric in ("requests", "sessions"):
+                used = sum(k[metric] for k in visible)
+                project[metric] = {"used": used, "percent_of_quota": percent(used, last_ok[metric]["quota"])}
         return {
             "status": "stale" if age_s > self.settings.stale_after_s or period_over else "ok",
             "checked_at": last_ok["checked_at"],
@@ -138,6 +146,7 @@ class Monitor:
             "level": last_ok["level"],
             "projection": last_ok["projection"],
             "keys": keys,
+            "project": project,
             "services": last_ok["by_service"],
             "last_error": last_error,
         }

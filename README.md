@@ -66,7 +66,7 @@ cada envio, verificações recentes e consumo dia a dia. Os botões verificam ag
   tela de entrada. O token fica só naquela aba (`sessionStorage`) e some quando ela é fechada.
 - A política de segurança da página só permite script, estilo e conexões do próprio monitor, sem nada inline
   nem de outros sites. Os textos que vêm da API entram como texto, nunca como HTML.
-- Cada atualização do painel faz 4 requisições, que contam no limite por IP (`RATE_LIMIT_PER_MIN`). Os arquivos
+- Cada atualização do painel faz 5 requisições, que contam no limite por IP (`RATE_LIMIT_PER_MIN`). Os arquivos
   estáticos do painel (`/panel/static/`) não contam.
 - Visual inspirado no console do MapTiler Cloud (fontes Ubuntu e Open Sans, servidas pelo próprio monitor), com
   tema claro e escuro.
@@ -81,7 +81,7 @@ Código em `app/panel/`, em módulos JavaScript sem build nem dependências:
 | `js/sections.js` | Uma função de desenho por seção |
 | `js/chart-model.js`, `js/chart.js` | Cálculo e desenho do gráfico |
 | `js/format.js`, `js/labels.js` | Números e datas no formato brasileiro; textos de cada código da API |
-| `js/dom.js`, `js/token-store.js` | Criação de elementos (sempre como texto); onde o token fica guardado |
+| `js/dom.js`, `js/token-store.js` | Criação de elementos (sempre como texto); onde ficam o token (na aba) e o projeto escolhido (no navegador) |
 
 Navegadores suportados: Chrome/Edge 103+, Firefox 100+ e Safari 16+. Contraste de cores no nível AA da WCAG, nos
 temas claro e escuro. Mudanças no painel: `npm install` uma vez, depois `npm run format` e `npm run lint`
@@ -141,7 +141,8 @@ Para gerar um token: `python -c "import secrets; print(secrets.token_urlsafe(32)
 | --- | --- | --- |
 | `GET /health` | Hospedagem (health check) | Diz se a API está no ar; sem dados de consumo |
 | `POST /v1/checks` | Agendador (`CHECK_TOKEN`) ou administrador | Consulta o MapTiler e grava; 502 se a consulta falhar, 429 se a última foi há menos de 10 minutos |
-| `GET /v1/usage` | Projetos clientes ou administrador | Consumo do período, percentuais, faixa, projeção, detalhe por serviço e por chave |
+| `GET /v1/usage` | Projetos clientes ou administrador | Consumo do período, percentuais, faixa, projeção, detalhe por serviço e por chave. Para um projeto, inclui `project`: o total das chaves dele e quanto isso representa da cota da conta. O administrador escolhe o projeto com `?client=Nome` |
+| `GET /v1/clients` | Administrador | Projetos clientes (nome, se está ativo, chaves do MapTiler mascaradas; nunca a chave do projeto) |
 | `GET /v1/usage/history?days=30` | Projetos clientes ou administrador | Consumo dia a dia (1 a 400 dias) |
 | `GET /v1/checks?limit=20` | Administrador | Verificações recentes, com sucesso ou falha (1 a 200) |
 | `GET /v1/alerts?limit=50` | Administrador | Histórico de avisos, com o resultado de cada envio |

@@ -109,6 +109,12 @@
             <p id="updated-at" class="topbar__subtitle"></p>
           </div>
           <div class="topbar__actions">
+            <div class="project-picker">
+              <label for="project-select" class="field-label">Projeto</label>
+              <select id="project-select" class="field field--compact">
+                <option value="">Conta inteira</option>
+              </select>
+            </div>
             <button id="refresh-button" type="button" class="button button--secondary">Atualizar</button>
             <button id="test-button" type="button" class="button button--secondary">Testar avisos</button>
             <button id="check-button" type="button" class="button button--primary">Verificar agora</button>
@@ -120,17 +126,22 @@
           <div id="notice" class="notice-region" role="status" aria-live="polite"></div>
 
           <section id="section-status" class="card" aria-labelledby="title-status">
-            <h2 id="title-status" class="card__title">Situação</h2>
+            <h2 id="title-status" class="card__title">
+              Situação <span class="scope-tag" data-account-scope hidden>conta inteira</span>
+            </h2>
             <div id="status" class="status"></div>
           </section>
 
           <section id="section-usage" class="card" aria-labelledby="title-usage">
             <h2 id="title-usage" class="card__title">Consumo do período</h2>
+            <div id="project-share" hidden></div>
             <div id="meters" class="meters"></div>
           </section>
 
           <section id="section-chart" class="card" aria-labelledby="title-chart">
-            <h2 id="title-chart" class="card__title">Requests acumulados no período</h2>
+            <h2 id="title-chart" class="card__title">
+              Requests acumulados no período <span class="scope-tag" data-account-scope hidden>conta inteira</span>
+            </h2>
             <div id="chart" class="chart"></div>
           </section>
 
@@ -140,23 +151,33 @@
               <div id="keys" data-labelledby="title-keys"></div>
             </section>
             <section class="card" aria-labelledby="title-services">
-              <h2 id="title-services" class="card__title">Por serviço</h2>
+              <h2 id="title-services" class="card__title">
+                Por serviço <span class="scope-tag" data-account-scope hidden>conta inteira</span>
+              </h2>
               <div id="services" data-labelledby="title-services"></div>
             </section>
           </div>
 
           <section id="section-alerts" class="card" aria-labelledby="title-alerts">
-            <h2 id="title-alerts" class="card__title">Avisos</h2>
+            <h2 id="title-alerts" class="card__title">
+              Avisos <span class="scope-tag" data-account-scope hidden>conta inteira</span>
+            </h2>
             <div id="alerts" data-labelledby="title-alerts"></div>
           </section>
 
           <section id="section-checks" class="card" aria-labelledby="title-checks">
-            <h2 id="title-checks" class="card__title">Verificações</h2>
+            <h2 id="title-checks" class="card__title">
+              Verificações <span class="scope-tag" data-account-scope hidden>conta inteira</span>
+            </h2>
             <div id="checks" data-labelledby="title-checks"></div>
           </section>
 
           <details id="section-daily" class="card">
-            <summary class="card__summary"><h2 id="title-daily" class="card__title">Consumo dia a dia</h2></summary>
+            <summary class="card__summary">
+              <h2 id="title-daily" class="card__title">
+                Consumo dia a dia <span class="scope-tag" data-account-scope hidden>conta inteira</span>
+              </h2>
+            </summary>
             <div id="daily" data-labelledby="title-daily"></div>
           </details>
         </main>

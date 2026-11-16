@@ -32,3 +32,28 @@ export function createTokenStore(storage = globalThis.sessionStorage) {
     },
   };
 }
+
+// The chosen project: a per-browser convenience in localStorage, so reopening the panel keeps the choice.
+// Not a secret (a project name). Unavailable storage just means the panel opens on the whole account.
+
+const PROJECT_KEY = "maptiler-monitor-project";
+
+export function createProjectStore(storage = globalThis.localStorage) {
+  return {
+    get() {
+      try {
+        return storage?.getItem(PROJECT_KEY) ?? "";
+      } catch {
+        return "";
+      }
+    },
+    set(name) {
+      try {
+        if (name) storage?.setItem(PROJECT_KEY, name);
+        else storage?.removeItem(PROJECT_KEY);
+      } catch {
+        // storage unavailable: the choice lasts until the page is reloaded
+      }
+    },
+  };
+}

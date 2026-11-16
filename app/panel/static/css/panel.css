@@ -312,6 +312,65 @@ a {
   box-shadow: 0 0 0 3px var(--color-primary-soft);
 }
 
+.field--compact {
+  padding: 8px var(--space-3);
+  font-size: var(--text-sm);
+  max-width: 100%;
+}
+
+/* ---------- project picker ---------- */
+
+.project-picker {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.scope-tag {
+  display: inline-block;
+  vertical-align: middle;
+  margin-left: var(--space-2);
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--color-neutral-soft);
+  color: var(--color-muted);
+  font: 600 var(--text-xs)/1.4 var(--font-text);
+}
+
+.project-share {
+  margin: 0 0 var(--space-5);
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-control);
+  background: var(--color-primary-soft);
+}
+
+.project-share__title {
+  font-size: var(--text-base);
+  margin: 0 0 var(--space-2);
+}
+
+.project-share__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-7);
+  margin: 0 0 var(--space-2);
+}
+
+.project-share__facts dt {
+  font-size: var(--text-sm);
+  color: var(--color-muted);
+}
+
+.project-share__facts dd {
+  margin: 0;
+  color: var(--color-heading);
+}
+
+.project-share .hint {
+  margin: 0;
+}
+
 /* ---------- brand ---------- */
 
 .brand {

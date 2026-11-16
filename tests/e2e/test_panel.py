@@ -29,6 +29,47 @@ def test_admin_sees_the_panel_without_errors(page, monitor_url):
     assert page.problems == []  # nenhum erro de JS, de CSP/Trusted Types ou do servidor
 
 
+def test_choosing_a_project(page, monitor_url):
+    sign_in(page, monitor_url)
+    picker = page.locator("#project-select")
+    expect(picker).to_have_value("")
+    expect(picker.locator("option")).to_have_text(["Conta inteira", "Antigo (desativado)", "HydrantRouteSP"])
+    expect(page.locator("#project-share")).to_be_hidden()
+    expect(page.locator("[data-account-scope]:visible")).to_have_count(0)
+    expect(page.locator("#keys tbody tr")).to_have_count(2)
+
+    picker.select_option("HydrantRouteSP")
+    share = page.locator("#project-share")
+    expect(share).to_be_visible()
+    expect(share).to_contain_text("HydrantRouteSP")
+    expect(share).to_contain_text("70.740")  # requests da chave A
+    expect(share).to_contain_text("70,7% da cota da conta")
+    expect(page.locator("#keys tbody tr")).to_have_count(1)
+    expect(page.locator("#meters")).to_contain_text("78.600")  # os medidores continuam sendo da conta
+    expect(page.locator("[data-account-scope]:visible")).to_have_count(6)
+
+    # a escolha fica lembrada no navegador
+    page.reload()
+    expect(page.locator("#project-share")).to_be_visible()
+    expect(picker).to_have_value("HydrantRouteSP")
+
+    picker.select_option("")
+    expect(page.locator("#project-share")).to_be_hidden()
+    expect(page.locator("#keys tbody tr")).to_have_count(2)
+    assert page.problems == []
+
+
+def test_remembered_project_that_no_longer_exists_falls_back_to_the_account(page, monitor_url):
+    page.goto(f"{monitor_url}/panel")
+    page.evaluate("localStorage.setItem('maptiler-monitor-project', 'Apagado')")
+    sign_in(page, monitor_url)
+    expect(page.locator("#app")).to_be_visible()
+    expect(page.locator("#project-select")).to_have_value("")
+    expect(page.locator("#project-share")).to_be_hidden()
+    assert page.evaluate("localStorage.getItem('maptiler-monitor-project')") is None
+    assert page.problems == []
+
+
 def test_wrong_and_non_admin_tokens_stay_on_sign_in(page, monitor_url):
     sign_in(page, monitor_url, "x" * 40)
     expect(page.locator("#login-error")).to_have_text("O token não foi aceito. Entre de novo.")
@@ -129,7 +170,7 @@ def test_accessibility_basics(page, monitor_url):
     assert page.locator("main:visible").count() == 1
     first_heading = page.evaluate("document.querySelector('#app h1, #app h2, #app h3').tagName")
     assert first_heading == "H1"
-    expect(page.locator("#section-daily summary h2")).to_have_text("Consumo dia a dia")
+    expect(page.locator("#section-daily summary h2")).to_have_accessible_name("Consumo dia a dia")
 
 
 def test_phone_layout_has_no_horizontal_scroll(browser, monitor_url):

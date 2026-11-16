@@ -17,10 +17,11 @@ import {
   renderDaily,
   renderKeys,
   renderMeters,
+  renderProjectShare,
   renderServices,
   renderStatus,
 } from "./sections.js";
-import { createTokenStore } from "./token-store.js";
+import { createProjectStore, createTokenStore } from "./token-store.js";
 
 const HISTORY_DAYS = 62; // covers the current billing period plus the previous one
 const ALERTS_LIMIT = 50;
@@ -30,6 +31,7 @@ const TOKEN_PATTERN = /^[\x21-\x7e]+$/; // printable ASCII: what an HTTP header 
 const UNEXPECTED_ERROR = "Ocorreu um erro inesperado ao exibir os dados. Detalhes no console do navegador.";
 
 const tokenStore = createTokenStore();
+const projectStore = createProjectStore();
 const api = createApiClient({ getToken: () => tokenStore.get() });
 
 /** Elements the controller touches, looked up once. */
@@ -47,7 +49,9 @@ const ui = Object.fromEntries(
     "check-button",
     "test-button",
     "logout-button",
+    "project-select",
     "status",
+    "project-share",
     "meters",
     "chart",
     "keys",
@@ -64,7 +68,10 @@ const state = {
   loading: null, // {session, promise} of the load in flight, so concurrent loads of a session share it
   usage: null, // last UsageResponse shown
   daily: null, // last daily history shown
+  project: projectStore.get(), // chosen project name; "" = the whole account
 };
+
+const ACCOUNT_SCOPE_TAGS = document.querySelectorAll("[data-account-scope]");
 
 // ---------- screen state ----------
 
@@ -129,8 +136,20 @@ async function withBusy(button, action) {
 
 // ---------- loading ----------
 
+/** Project picker options: the whole account, then each project (inactive ones say so). */
+function renderProjectPicker(clients) {
+  const options = [h("option", { value: "", text: "Conta inteira" })];
+  for (const client of clients) {
+    const label = client.active ? client.name : `${client.name} (desativado)`;
+    options.push(h("option", { value: client.name, text: label }));
+  }
+  fill(ui["project-select"], options);
+  ui["project-select"].value = state.project;
+}
+
 function render(usage, history, alerts, checks) {
   renderStatus(ui.status, usage);
+  renderProjectShare(ui["project-share"], usage);
   renderMeters(ui.meters, usage);
   renderUsageChart(ui.chart, usage, history.daily);
   renderKeys(ui.keys, usage);
@@ -138,6 +157,8 @@ function render(usage, history, alerts, checks) {
   renderAlerts(ui.alerts, alerts.alerts);
   renderChecks(ui.checks, checks.checks);
   renderDaily(ui.daily, history.daily);
+  // With a project chosen, these sections still show the whole account: say so next to their titles.
+  for (const tag of ACCOUNT_SCOPE_TAGS) tag.hidden = !state.project;
   ui["updated-at"].textContent = usage.checked_at ? `Consumo de ${formatDateTime(usage.checked_at)}` : "Sem dados";
   state.usage = usage;
   state.daily = history.daily;
@@ -145,9 +166,15 @@ function render(usage, history, alerts, checks) {
 
 async function fetchAndRender() {
   const session = state.session;
+  ui["project-select"].disabled = true; // the choice can't change halfway through a load
   try {
+    // Projects first: a remembered project that no longer exists falls back to the whole account.
+    const { clients } = await api.clients();
+    if (session !== state.session) return false;
+    if (state.project && !clients.some((c) => c.name === state.project)) chooseProject("");
+    renderProjectPicker(clients);
     const [usage, history, alerts, checks] = await Promise.all([
-      api.usage(),
+      api.usage(state.project),
       api.history(HISTORY_DAYS),
       api.alerts(ALERTS_LIMIT),
       api.checks(CHECKS_LIMIT),
@@ -171,7 +198,14 @@ async function fetchAndRender() {
       showNotice(`Não foi possível carregar os dados: ${error.message}.`, "critical");
     }
     return false;
+  } finally {
+    ui["project-select"].disabled = false;
   }
+}
+
+function chooseProject(name) {
+  state.project = name;
+  projectStore.set(name);
 }
 
 /**
@@ -288,6 +322,11 @@ function start() {
   ui["check-button"].addEventListener("click", runCheck);
   ui["test-button"].addEventListener("click", sendTestAlert);
   ui["logout-button"].addEventListener("click", () => showLogin());
+  ui["project-select"].addEventListener("change", () => {
+    chooseProject(ui["project-select"].value);
+    showNotice("");
+    load();
+  });
   redrawChartOnResize();
   refreshRelativeTimes();
 
