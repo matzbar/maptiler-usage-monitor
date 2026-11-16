@@ -117,7 +117,8 @@ de saúde, deploy só depois do CI). Você só preenche os segredos.
    no e-mail.
 
 Pronto: a partir daí o GitHub chama o monitor às 3h17, 9h17 (com o relatório), 15h17 e 21h17, horário de
-Brasília. Se uma execução falhar, chega um e-mail do GitHub.
+Brasília. Se uma execução falhar, chega um e-mail do GitHub. Cada horário tem uma reserva 1h30 depois, que só
+chama o monitor se a execução principal não tiver rodado (o GitHub às vezes descarta execuções agendadas).
 
 ## Parte 7 — Projetos clientes (opcional, depois)
 

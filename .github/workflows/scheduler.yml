@@ -15,6 +15,12 @@ on:
     # Horário do GitHub é UTC; Brasília = UTC-3 o ano todo. Minuto :17 foge da fila do horário cheio.
     - cron: "17 0,6,18 * * *" # 21h17, 3h17 e 15h17 em Brasília: verificação
     - cron: "17 12 * * *" # 9h17 em Brasília: verificação + relatório diário
+    # Reservas, 1h30 depois de cada uma acima: com a fila cheia, o GitHub atrasa ou descarta execuções agendadas
+    # (em nov/2026 descartou a das 9h17, a do relatório). A reserva só chama o monitor se nenhuma execução deu
+    # certo nas últimas 2 horas, então não o acorda à toa. Repetir é seguro: verificação recente demais é
+    # ignorada, e o relatório sai no máximo uma vez por dia.
+    - cron: "47 1,7,19 * * *" # 22h47, 4h47 e 16h47: reserva da verificação
+    - cron: "47 13 * * *" # 10h47: reserva da verificação + relatório
   workflow_dispatch: # rodar na mão: aba Actions > Scheduler > Run workflow
     inputs:
       tasks:
@@ -25,6 +31,7 @@ on:
 
 permissions:
   contents: read
+  actions: read # a reserva consulta as execuções anteriores deste workflow
 
 # Nunca duas execuções ao mesmo tempo (o monitor recusaria a segunda); a que chegar espera a anterior.
 concurrency:
@@ -37,20 +44,41 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - name: Reserva — a execução principal já rodou?
+        id: backup
+        if: github.event_name == 'schedule' && startsWith(github.event.schedule, '47 ')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          since=$(date -u -d '-2 hours' +%Y-%m-%dT%H:%M:%SZ)
+          done=$(gh api -X GET "repos/$GITHUB_REPOSITORY/actions/workflows/scheduler.yml/runs" \
+            -f status=success -f created=">=$since" \
+            --jq "[.workflow_runs[] | select(.id != $GITHUB_RUN_ID)] | length")
+          if [ "$done" -gt 0 ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Reserva dispensada: uma execução deu certo nas últimas 2 horas." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "A execução principal não rodou ou falhou: a reserva chama o monitor." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - if: steps.backup.outputs.skip != 'true'
+        uses: actions/checkout@v7
+      - if: steps.backup.outputs.skip != 'true'
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       # Só o httpx, na mesma versão do projeto: o script não precisa do resto.
-      - run: pip install "$(grep '^httpx==' requirements.txt)"
+      - if: steps.backup.outputs.skip != 'true'
+        run: pip install "$(grep '^httpx==' requirements.txt)"
       - name: Chama o monitor
+        if: steps.backup.outputs.skip != 'true'
         env:
           MONITOR_URL: ${{ secrets.MONITOR_URL }}
           MONITOR_CHECK_TOKEN: ${{ secrets.MONITOR_CHECK_TOKEN }}
-          # Execução manual: o que foi escolhido. Agendada: relatório só na das 9h17.
+          # Execução manual: o que foi escolhido. Agendada: relatório só na das 9h17 e na reserva dela (10h47).
           TASKS: >-
             ${{ github.event_name == 'workflow_dispatch' && inputs.tasks
-            || (github.event.schedule == '17 12 * * *' && 'check report' || 'check') }}
+            || ((github.event.schedule == '17 12 * * *' || github.event.schedule == '47 13 * * *')
+                && 'check report' || 'check') }}
         run: |
           read -ra task_list <<< "$TASKS" # "check report" → duas tarefas
           python -m scripts.scheduler "${task_list[@]}"
