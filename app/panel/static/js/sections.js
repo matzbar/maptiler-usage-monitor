@@ -210,7 +210,7 @@ export function renderProjectShare(container, usage) {
       ),
       h("p", {
         class: "hint",
-        text: "Abaixo, o total da conta inteira: é ele que tem cota, dispara os avisos e o corte dos projetos.",
+        text: "Abaixo, o total de todos os projetos: é ele que tem cota, dispara os avisos e o corte dos projetos.",
       }),
     ),
   );

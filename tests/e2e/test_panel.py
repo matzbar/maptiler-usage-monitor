@@ -33,7 +33,7 @@ def test_choosing_a_project(page, monitor_url):
     sign_in(page, monitor_url)
     picker = page.locator("#project-select")
     expect(picker).to_have_value("")
-    expect(picker.locator("option")).to_have_text(["Conta inteira", "Antigo (desativado)", "HydrantRouteSP"])
+    expect(picker.locator("option")).to_have_text(["Todos os projetos", "Antigo (desativado)", "HydrantRouteSP"])
     expect(page.locator("#project-share")).to_be_hidden()
     expect(page.locator("[data-account-scope]:visible")).to_have_count(0)
     expect(page.locator("#keys tbody tr")).to_have_count(2)
